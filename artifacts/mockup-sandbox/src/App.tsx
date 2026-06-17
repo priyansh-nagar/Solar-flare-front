@@ -140,7 +140,12 @@ function App() {
     );
   }
 
-  return <Gallery />;
+  return (
+    <PreviewRenderer
+      componentPath="solar-dashboard/Dashboard"
+      modules={discoveredModules}
+    />
+  );
 }
 
 export default App;
