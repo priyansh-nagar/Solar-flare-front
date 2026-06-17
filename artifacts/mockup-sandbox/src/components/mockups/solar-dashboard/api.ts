@@ -50,6 +50,9 @@ export interface SolarApiResponse {
   flare_events: FlareEventRaw[];
   confidence: number;
   lead_time_peak: number;
+  p_15min: number;
+  p_30min: number;
+  p_extreme: number;
 }
 
 export interface SolarPrediction {
@@ -81,22 +84,27 @@ async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
 }
 
 export async function fetchSolarData(): Promise<SolarApiResponse> {
-  const [predRes, healthRes] = await Promise.allSettled([
+  const [predRes, healthRes, replayRes] = await Promise.allSettled([
     fetchWithRetry(`${BASE_URL}/predict`),
     fetchWithRetry(`${BASE_URL}/health`),
+    fetchWithRetry(`${BASE_URL}/replay`),
   ]);
 
-  const pred = predRes.status === "fulfilled" ? await predRes.value.json().catch(() => null) : null;
+  const pred   = predRes.status   === "fulfilled" ? await predRes.value.json().catch(() => null)   : null;
   const health = healthRes.status === "fulfilled" ? await healthRes.value.json().catch(() => null) : null;
+  const replay = replayRes.status === "fulfilled" ? await replayRes.value.json().catch(() => null) : null;
 
   return {
     active_regions: pred?.active_regions ?? mockRegions(),
-    xray_series: buildXRaySeries(pred),
-    health: health ?? mockHealth(),
+    xray_series:    buildXRaySeries(pred),
+    health:         health ?? mockHealth(),
     forecast_windows: buildForecastWindows(pred),
-    flare_events: pred?.flare_events ?? mockFlareEvents(),
-    confidence: pred?.prediction?.confidence ?? 0.87,
+    flare_events:   pred?.flare_events ?? mockFlareEvents(),
+    confidence:     pred?.prediction?.confidence ?? 0.87,
     lead_time_peak: pred?.lead_time_peak ?? 14,
+    p_15min:        replay?.p_15min  ?? 0.31,
+    p_30min:        replay?.p_30min  ?? 0.19,
+    p_extreme:      replay?.p_extreme ?? 0.05,
   };
 }
 

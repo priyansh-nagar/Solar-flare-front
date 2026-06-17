@@ -297,7 +297,7 @@ export function Dashboard() {
                     <div style={{ fontSize: 8, letterSpacing: "0.15em", color: C.textSec, textTransform: "uppercase", marginBottom: 4 }}>
                       Current Class
                     </div>
-                    <div style={{ fontSize: 56, fontWeight: "bold", lineHeight: 1, color: softColor, fontFamily: "monospace" }}>
+                    <div style={{ fontSize: 96, fontWeight: "bold", lineHeight: 1, color: softColor, fontFamily: "monospace" }}>
                       {softCls}
                     </div>
                   </div>
@@ -313,48 +313,35 @@ export function Dashboard() {
                 </div>,
 
                 /* Soft X-ray */
-                <div key="soft" style={{ padding: "10px 20px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6, borderLeft: `1px solid ${C.border}` }}>
+                <div key="soft" style={{ padding: "10px 20px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4, borderLeft: `1px solid ${C.border}` }}>
                   <div style={{ fontSize: 8, letterSpacing: "0.15em", color: C.textSec, textTransform: "uppercase" }}>Soft X-ray 1–8Å</div>
-                  <div style={{ fontSize: 13, fontWeight: "bold", color: C.blue, fontFamily: "monospace" }}>{softFlux.toExponential(2)} W/m²</div>
-                  <div style={{ height: 3, background: C.border, borderRadius: 0, overflow: "hidden" }}>
-                    <div style={{
-                      height: "100%", background: C.blue, transition: "width 0.7s",
-                      width: `${Math.max(2, Math.min(100, ((Math.log10(softFlux || 1e-9) + 9) / 6) * 100))}%`,
-                    }} />
-                  </div>
+                  <div style={{ fontSize: 28, fontWeight: "bold", color: C.blue, fontFamily: "monospace", lineHeight: 1.1 }}>{softFlux.toExponential(2)} W/m²</div>
+                  <div style={{ width: 40, height: 2, background: C.blue, marginTop: 2 }} />
                 </div>,
 
                 /* Hard X-ray */
-                <div key="hard" style={{ padding: "10px 20px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6, borderLeft: `1px solid ${C.border}` }}>
+                <div key="hard" style={{ padding: "10px 20px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4, borderLeft: `1px solid ${C.border}` }}>
                   <div style={{ fontSize: 8, letterSpacing: "0.15em", color: C.textSec, textTransform: "uppercase" }}>Hard X-ray 0.5–4Å</div>
-                  <div style={{ fontSize: 13, fontWeight: "bold", color: C.cyan, fontFamily: "monospace" }}>{hardFlux.toExponential(2)} W/m²</div>
-                  <div style={{ height: 3, background: C.border, borderRadius: 0, overflow: "hidden" }}>
-                    <div style={{
-                      height: "100%", background: C.cyan, transition: "width 0.7s",
-                      width: `${Math.max(2, Math.min(100, ((Math.log10(hardFlux || 1e-9) + 9) / 6) * 100))}%`,
-                    }} />
-                  </div>
+                  <div style={{ fontSize: 28, fontWeight: "bold", color: C.cyan, fontFamily: "monospace", lineHeight: 1.1 }}>{hardFlux.toExponential(2)} W/m²</div>
+                  <div style={{ width: 40, height: 2, background: C.cyan, marginTop: 2 }} />
                 </div>,
 
                 /* Forecast */
-                <div key="fcst" style={{ padding: "10px 20px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 5, borderLeft: `1px solid ${C.border}` }}>
+                <div key="fcst" style={{ padding: "10px 20px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 6, borderLeft: `1px solid ${C.border}` }}>
                   <div style={{ fontSize: 8, letterSpacing: "0.15em", color: C.textSec, textTransform: "uppercase", marginBottom: 2 }}>Predictive Forecast</div>
                   {[
-                    { label: "C-class", val: lastFw?.prob_c ?? 0, color: C.amber },
-                    { label: "M-class", val: lastFw?.prob_m ?? 0, color: "#FF8C00" },
-                    { label: "X-class", val: lastFw?.prob_x ?? 0, color: C.red },
+                    { label: "M-CLASS (30min)", val: d.p_30min, color: C.amber },
+                    { label: "X-CLASS (30min)", val: d.p_extreme, color: C.red },
+                    { label: "ALL CLEAR (15min)", val: 1 - d.p_15min, color: C.green },
                   ].map(({ label, val, color }) => (
                     <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 8, fontFamily: "monospace" }}>
-                      <span style={{ color: C.textDim, width: 50 }}>{label}</span>
+                      <span style={{ color: C.textDim, minWidth: 112 }}>{label}</span>
                       <div style={{ width: 64, height: 2, background: C.border }}>
-                        <div style={{ height: "100%", width: `${Math.round(val * 100)}%`, background: color }} />
+                        <div style={{ height: "100%", width: `${Math.round(Math.min(1, val) * 100)}%`, background: color, transition: "width 0.5s ease" }} />
                       </div>
-                      <span style={{ color, width: 28 }}>{Math.round(val * 100)}%</span>
+                      <span style={{ color, width: 32 }}>{Math.round(Math.min(1, val) * 100)}%</span>
                     </div>
                   ))}
-                  <div style={{ fontSize: 7, color: C.textDim, marginTop: 2 }}>
-                    T+{d.lead_time_peak}min peak · {Math.round(d.confidence * 100)}% conf.
-                  </div>
                 </div>,
 
                 /* Telemetry */
@@ -380,7 +367,7 @@ export function Dashboard() {
             <PanelHeader label="X-ray Light Curves · Nowcasting Trigger" right="6h · GOES-16 · drag navigator to scroll" />
             <div className="flex-1 min-h-0">
               {d.xray_series.length > 0
-                ? <XRayLightCurves series={d.xray_series} flareEvents={flareAnno} />
+                ? <XRayLightCurves series={d.xray_series} flareEvents={flareAnno} probM30={d.p_30min} />
                 : (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 9, fontFamily: "monospace", color: C.textDim }}>
                     AWAITING DATA STREAM…

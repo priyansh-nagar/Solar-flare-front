@@ -15,6 +15,7 @@ export interface XRayPoint {
 interface Props {
   series: XRayPoint[];
   flareEvents?: { time: string; class: string; label: string }[];
+  probM30?: number;
 }
 
 const GOES_THRESHOLDS = [
@@ -46,7 +47,10 @@ function CustomTooltip({ active, payload, label }: any) {
         <div key={p.dataKey} style={{ display: "flex", justifyContent: "space-between", gap: 24, marginBottom: 2 }}>
           <span style={{ color: "#5B7A8A" }}>{p.name}</span>
           <span style={{ color: p.color, fontWeight: "bold" }}>
-            10<sup>{p.value?.toFixed(1)}</sup> W/m²
+            {p.dataKey === "prob"
+              ? `${p.value?.toFixed(1)}%`
+              : `10^${p.value?.toFixed(1)} W/m²`
+            }
           </span>
         </div>
       ))}
@@ -54,75 +58,7 @@ function CustomTooltip({ active, payload, label }: any) {
   );
 }
 
-function ChannelChart({
-  data, dataKey, color, label, flareEvents = [],
-}: {
-  data: any[];
-  dataKey: string;
-  color: string;
-  label: string;
-  flareEvents?: { time: string; class: string; label: string }[];
-}) {
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <ComposedChart data={data} margin={{ top: 4, right: 52, bottom: 0, left: 4 }}>
-        <CartesianGrid stroke="#1E2D3D" strokeDasharray="3 6" vertical={false} />
-        <XAxis
-          dataKey="time"
-          tickFormatter={(v) => { try { return format(new Date(v), "HH:mm"); } catch { return v; } }}
-          tick={{ fill: "#5B7A8A", fontSize: 9, fontFamily: "monospace" }}
-          tickLine={false}
-          axisLine={{ stroke: "#1E2D3D" }}
-          interval="preserveStartEnd"
-          minTickGap={50}
-        />
-        <YAxis
-          tickFormatter={formatLog}
-          tick={{ fill: "#5B7A8A", fontSize: 9, fontFamily: "monospace" }}
-          tickLine={false}
-          axisLine={{ stroke: "#1E2D3D" }}
-          domain={[-9, -3]}
-          ticks={[-9, -8, -7, -6, -5, -4, -3]}
-          width={22}
-        />
-        {GOES_THRESHOLDS.map((t) => (
-          <ReferenceLine
-            key={t.label}
-            y={logScale(t.value)}
-            stroke={t.color}
-            strokeDasharray="4 4"
-            strokeWidth={1}
-            strokeOpacity={0.5}
-            label={{ value: t.label, position: "right", fill: t.color, fontSize: 8, fontFamily: "monospace" }}
-          />
-        ))}
-        {flareEvents.map((ev) => (
-          <ReferenceLine
-            key={ev.time}
-            x={ev.time}
-            stroke="#5B7A8A"
-            strokeDasharray="2 4"
-            strokeWidth={1}
-            label={{ value: ev.label, position: "insideTopLeft", fill: "#5B7A8A", fontSize: 7 }}
-          />
-        ))}
-        <Line
-          type="monotone"
-          dataKey={dataKey}
-          stroke={color}
-          strokeWidth={1.5}
-          dot={false}
-          activeDot={{ r: 3, fill: color, strokeWidth: 0 }}
-          name={label}
-          isAnimationActive={false}
-        />
-        <Tooltip content={<CustomTooltip />} />
-      </ComposedChart>
-    </ResponsiveContainer>
-  );
-}
-
-export function XRayLightCurves({ series, flareEvents = [] }: Props) {
+export function XRayLightCurves({ series, flareEvents = [], probM30 = 0 }: Props) {
   const [brushRange, setBrushRange] = useState<[number, number]>([
     Math.max(0, series.length - 60),
     series.length - 1,
@@ -132,27 +68,130 @@ export function XRayLightCurves({ series, flareEvents = [] }: Props) {
     time: d.time,
     soft: logScale(d.soft),
     hard: logScale(d.hard),
+    prob: probM30 * 100,
   }));
 
   const visible = processed.slice(brushRange[0], brushRange[1] + 1);
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 0 }}>
-      <div style={{ flex: 1, minHeight: 0, padding: "6px 10px 0" }}>
-        {/* Soft X-ray */}
-        <div style={{ fontSize: 8, letterSpacing: "0.15em", color: "#5B7A8A", textTransform: "uppercase", fontFamily: "monospace", marginBottom: 4 }}>
-          SoLEXS · Soft X-ray · 1–8 Å (GOES)
-        </div>
-        <div style={{ height: "calc(50% - 20px)" }}>
-          <ChannelChart data={visible} dataKey="soft" color="#4DAAFF" label="Soft X-ray" flareEvents={flareEvents} />
-        </div>
-        {/* Hard X-ray */}
-        <div style={{ fontSize: 8, letterSpacing: "0.15em", color: "#5B7A8A", textTransform: "uppercase", fontFamily: "monospace", margin: "10px 0 4px" }}>
-          HEL1OS · Hard X-ray · 0.5–4 Å (GOES)
-        </div>
-        <div style={{ height: "calc(50% - 20px)" }}>
-          <ChannelChart data={visible} dataKey="hard" color="#00D4FF" label="Hard X-ray" flareEvents={flareEvents} />
-        </div>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Legend row */}
+      <div style={{ flexShrink: 0, display: "flex", gap: 18, fontSize: 8, fontFamily: "monospace", padding: "5px 14px 3px", borderBottom: "1px solid #1E2D3D" }}>
+        {[
+          { color: "#4DAAFF", label: "SoLEXS 1-8Å" },
+          { color: "#00D4FF", label: "HEL1OS 0.5-4Å" },
+          { color: "#FF3B3B", label: "P(M+ 30min)" },
+        ].map(({ color, label }) => (
+          <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 8, height: 8, background: color, flexShrink: 0 }} />
+            <span style={{ color: "#5B7A8A", letterSpacing: "0.1em", textTransform: "uppercase" }}>{label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Merged chart */}
+      <div style={{ flex: 1, minHeight: 0, padding: "4px 10px 0" }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={visible} margin={{ top: 4, right: 48, bottom: 0, left: 4 }}>
+            <CartesianGrid stroke="#1E2D3D" strokeDasharray="3 6" vertical={false} />
+            <XAxis
+              dataKey="time"
+              tickFormatter={(v) => { try { return format(new Date(v), "HH:mm"); } catch { return v; } }}
+              tick={{ fill: "#5B7A8A", fontSize: 9, fontFamily: "monospace" }}
+              tickLine={false}
+              axisLine={{ stroke: "#1E2D3D" }}
+              interval="preserveStartEnd"
+              minTickGap={50}
+            />
+            <YAxis
+              yAxisId="left"
+              tickFormatter={formatLog}
+              tick={{ fill: "#5B7A8A", fontSize: 9, fontFamily: "monospace" }}
+              tickLine={false}
+              axisLine={{ stroke: "#1E2D3D" }}
+              domain={[-9, -3]}
+              ticks={[-9, -8, -7, -6, -5, -4, -3]}
+              width={22}
+            />
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              domain={[0, 100]}
+              ticks={[0, 25, 50, 75, 100]}
+              tickFormatter={(v) => `${v}%`}
+              tick={{ fill: "#5B7A8A", fontSize: 9, fontFamily: "monospace" }}
+              tickLine={false}
+              axisLine={{ stroke: "#1E2D3D" }}
+              width={36}
+            />
+            {GOES_THRESHOLDS.map((t) => (
+              <ReferenceLine
+                key={t.label}
+                yAxisId="left"
+                y={logScale(t.value)}
+                stroke={t.color}
+                strokeDasharray="4 4"
+                strokeWidth={1}
+                strokeOpacity={0.5}
+                label={{ value: t.label, position: "insideTopRight", fill: t.color, fontSize: 8, fontFamily: "monospace" }}
+              />
+            ))}
+            <ReferenceLine
+              yAxisId="right"
+              y={78.2}
+              stroke="#FF3B3B"
+              strokeDasharray="6 3"
+              strokeWidth={1}
+              strokeOpacity={0.85}
+              label={{ value: "FAR THRESHOLD", position: "insideTopLeft", fill: "#FF3B3B", fontSize: 7, fontFamily: "monospace" }}
+            />
+            {flareEvents.map((ev) => (
+              <ReferenceLine
+                key={ev.time}
+                yAxisId="left"
+                x={ev.time}
+                stroke="#5B7A8A"
+                strokeDasharray="2 4"
+                strokeWidth={1}
+                label={{ value: ev.label, position: "insideTopLeft", fill: "#5B7A8A", fontSize: 7 }}
+              />
+            ))}
+            <Line
+              yAxisId="left"
+              type="monotone"
+              dataKey="soft"
+              stroke="#4DAAFF"
+              strokeWidth={1.5}
+              dot={false}
+              activeDot={{ r: 3, fill: "#4DAAFF", strokeWidth: 0 }}
+              name="SoLEXS 1-8Å"
+              isAnimationActive={false}
+            />
+            <Line
+              yAxisId="left"
+              type="monotone"
+              dataKey="hard"
+              stroke="#00D4FF"
+              strokeWidth={1.5}
+              dot={false}
+              activeDot={{ r: 3, fill: "#00D4FF", strokeWidth: 0 }}
+              name="HEL1OS 0.5-4Å"
+              isAnimationActive={false}
+            />
+            <Line
+              yAxisId="right"
+              type="monotone"
+              dataKey="prob"
+              stroke="#FF3B3B"
+              strokeWidth={1.5}
+              dot={false}
+              activeDot={{ r: 3, fill: "#FF3B3B", strokeWidth: 0 }}
+              name="P(M+ 30min)"
+              isAnimationActive={false}
+            />
+            <Tooltip content={<CustomTooltip />} />
+          </ComposedChart>
+        </ResponsiveContainer>
       </div>
 
       {/* Timeline navigator */}
@@ -161,10 +200,12 @@ export function XRayLightCurves({ series, flareEvents = [] }: Props) {
           Timeline Navigator — Drag to Scroll
         </div>
         <ResponsiveContainer width="100%" height={34}>
-          <ComposedChart data={processed} margin={{ left: 4, right: 52 }}>
+          <ComposedChart data={processed} margin={{ left: 4, right: 48 }}>
             <XAxis dataKey="time" hide />
-            <YAxis hide domain={[-9, -3]} />
+            <YAxis yAxisId="left" hide domain={[-9, -3]} />
+            <YAxis yAxisId="right" hide domain={[0, 100]} orientation="right" />
             <Area
+              yAxisId="left"
               type="monotone"
               dataKey="soft"
               stroke="#4DAAFF"
@@ -187,11 +228,7 @@ export function XRayLightCurves({ series, flareEvents = [] }: Props) {
                   setBrushRange([e.startIndex, e.endIndex]);
                 }
               }}
-            >
-              <ComposedChart>
-                <Area type="monotone" dataKey="soft" stroke="#4DAAFF" strokeWidth={0.5} fill="#4DAAFF" fillOpacity={0.06} dot={false} isAnimationActive={false} />
-              </ComposedChart>
-            </Brush>
+            />
           </ComposedChart>
         </ResponsiveContainer>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 7, fontFamily: "monospace", color: "#2E4558", marginTop: 2, padding: "0 4px" }}>
