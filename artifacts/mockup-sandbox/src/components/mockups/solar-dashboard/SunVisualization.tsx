@@ -1,150 +1,12 @@
 import { useRef, useEffect, useState } from "react";
 import type { ActiveRegion } from "./api";
 
-const riskColor: Record<string, string> = {
+const RISK_COLOR: Record<string, string> = {
   low: "#22c55e",
   moderate: "#eab308",
   high: "#f97316",
   severe: "#ef4444",
 };
-
-const POLARITY_POS = "rgba(80,120,255,0.55)";
-const POLARITY_NEG = "rgba(255,60,60,0.55)";
-
-function drawSunspot(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  r: number,
-  color: string
-) {
-  const umbra = r * 0.42;
-  const penumbra = r;
-  const filaR = r * 1.18;
-
-  for (let i = 0; i < 28; i++) {
-    const angle = (i / 28) * Math.PI * 2;
-    const ax = x + filaR * Math.cos(angle);
-    const ay = y + filaR * Math.sin(angle);
-    ctx.beginPath();
-    ctx.moveTo(x + penumbra * 0.85 * Math.cos(angle), y + penumbra * 0.85 * Math.sin(angle));
-    ctx.lineTo(ax, ay);
-    ctx.strokeStyle = "rgba(80,30,0,0.25)";
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-  }
-
-  const penGrad = ctx.createRadialGradient(x, y, umbra, x, y, penumbra);
-  penGrad.addColorStop(0, "rgba(40,15,0,0.92)");
-  penGrad.addColorStop(0.45, "rgba(80,30,5,0.80)");
-  penGrad.addColorStop(0.75, "rgba(140,60,10,0.55)");
-  penGrad.addColorStop(1, "rgba(200,90,15,0.0)");
-  ctx.beginPath();
-  ctx.arc(x, y, penumbra, 0, Math.PI * 2);
-  ctx.fillStyle = penGrad;
-  ctx.fill();
-
-  const umbraGrad = ctx.createRadialGradient(x - umbra * 0.15, y - umbra * 0.15, 0, x, y, umbra);
-  umbraGrad.addColorStop(0, "rgba(5,2,0,0.98)");
-  umbraGrad.addColorStop(0.6, "rgba(15,5,0,0.95)");
-  umbraGrad.addColorStop(1, "rgba(35,12,0,0.88)");
-  ctx.beginPath();
-  ctx.arc(x, y, umbra, 0, Math.PI * 2);
-  ctx.fillStyle = umbraGrad;
-  ctx.fill();
-
-  const shineGrad = ctx.createRadialGradient(x - umbra * 0.25, y - umbra * 0.3, 0, x, y, umbra * 0.6);
-  shineGrad.addColorStop(0, "rgba(120,60,10,0.18)");
-  shineGrad.addColorStop(1, "rgba(120,60,10,0)");
-  ctx.beginPath();
-  ctx.arc(x, y, umbra * 0.6, 0, Math.PI * 2);
-  ctx.fillStyle = shineGrad;
-  ctx.fill();
-
-  const dotR = r * 0.35 + (color === riskColor.severe ? 4 : 0);
-  const dotGlow = ctx.createRadialGradient(x, y, 0, x, y, dotR * 3);
-  dotGlow.addColorStop(0, color + "cc");
-  dotGlow.addColorStop(0.4, color + "55");
-  dotGlow.addColorStop(1, color + "00");
-  ctx.beginPath();
-  ctx.arc(x, y, dotR * 3, 0, Math.PI * 2);
-  ctx.fillStyle = dotGlow;
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.arc(x, y, dotR, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 8;
-  ctx.fill();
-  ctx.shadowBlur = 0;
-}
-
-function drawFieldLines(
-  ctx: CanvasRenderingContext2D,
-  x1: number, y1: number,
-  x2: number, y2: number,
-  count = 5
-) {
-  const mx = (x1 + x2) / 2;
-  const my = (y1 + y2) / 2;
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const len = Math.sqrt(dx * dx + dy * dy);
-
-  for (let i = 0; i < count; i++) {
-    const t = (i + 1) / (count + 1);
-    const cpx = mx - dy * (0.3 + t * 0.25);
-    const cpy = my + dx * (0.3 + t * 0.25);
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.quadraticCurveTo(cpx, cpy, x2, y2);
-    ctx.strokeStyle = `rgba(150,180,255,${0.06 + t * 0.05})`;
-    ctx.lineWidth = 0.8;
-    ctx.setLineDash([3, 4]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-}
-
-function drawPolarityPatch(
-  ctx: CanvasRenderingContext2D,
-  x: number, y: number, r: number,
-  polarity: "pos" | "neg"
-) {
-  const color = polarity === "pos" ? POLARITY_POS : POLARITY_NEG;
-  const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-  grad.addColorStop(0, color);
-  grad.addColorStop(1, "transparent");
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = grad;
-  ctx.fill();
-}
-
-function drawProminence(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, angle: number, t: number) {
-  const baseX = cx + r * Math.cos(angle);
-  const baseY = cy + r * Math.sin(angle);
-  const wave = Math.sin(t + angle * 3) * 8;
-  const h = r * 0.14 + wave;
-  const cpx = baseX + h * 1.2 * Math.cos(angle) + wave * Math.cos(angle + 1.5);
-  const cpy = baseY + h * 1.2 * Math.sin(angle) + wave * Math.sin(angle + 1.5);
-  const tipX = baseX + h * 1.8 * Math.cos(angle);
-  const tipY = baseY + h * 1.8 * Math.sin(angle);
-  ctx.beginPath();
-  ctx.moveTo(baseX, baseY);
-  ctx.quadraticCurveTo(cpx, cpy, tipX, tipY);
-  ctx.strokeStyle = "rgba(255,140,20,0.55)";
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  const proGlow = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, h * 0.5);
-  proGlow.addColorStop(0, "rgba(255,160,30,0.35)");
-  proGlow.addColorStop(1, "rgba(255,100,0,0)");
-  ctx.beginPath();
-  ctx.arc(tipX, tipY, h * 0.5, 0, Math.PI * 2);
-  ctx.fillStyle = proGlow;
-  ctx.fill();
-}
 
 interface Props {
   regions: ActiveRegion[];
@@ -153,223 +15,208 @@ interface Props {
 
 export function SunVisualization({ regions, nowcastAlert }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animRef = useRef(0);
+  const rafRef = useRef(0);
   const rotRef = useRef(0);
+  const dotCacheRef = useRef<Map<string, { cx: number; cy: number; r: number }>>(new Map());
   const [hovered, setHovered] = useState<ActiveRegion | null>(null);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const regionPosCache = useRef<Map<string, { x: number; y: number; r: number }>>(new Map());
+  const [tip, setTip] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
-    let running = true;
+    let alive = true;
 
-    function latLonTo2D(lat: number, lon: number, cx: number, cy: number, r: number, rot: number) {
-      const adjLon = lon + rot;
-      const lonRad = adjLon * (Math.PI / 180);
-      const latRad = lat * (Math.PI / 180);
-      const x = cx + r * Math.cos(latRad) * Math.sin(lonRad);
-      const y = cy - r * Math.sin(latRad);
-      const z = Math.cos(latRad) * Math.cos(lonRad);
-      return { x, y, visible: z > 0.08 };
+    /* ── pre-bake a granulation offscreen texture ───────────────────────── */
+    const gran = document.createElement("canvas");
+    gran.width = 512;
+    gran.height = 512;
+    const gc = gran.getContext("2d")!;
+    const GCX = 256, GCY = 256, GR = 240;
+    for (let i = 0; i < 260; i++) {
+      const seed = i * 137.508;
+      const gx = GCX + Math.sin(seed) * GR * 0.94 * Math.random();
+      const gy = GCY + Math.cos(seed * 1.31) * GR * 0.94 * Math.random();
+      const gr2 = 6 + Math.random() * 14;
+      const dark = i % 5 === 0;
+      const bright = i % 7 === 0;
+      const alpha = dark ? 0.30 : bright ? 0.18 : 0.0;
+      if (alpha === 0) continue;
+      const gg = gc.createRadialGradient(gx, gy, 0, gx, gy, gr2);
+      gg.addColorStop(0, dark ? `rgba(10,3,0,${alpha})` : `rgba(255,210,60,${alpha})`);
+      gg.addColorStop(1, "rgba(0,0,0,0)");
+      gc.beginPath();
+      gc.arc(gx, gy, gr2, 0, Math.PI * 2);
+      gc.fillStyle = gg;
+      gc.fill();
     }
 
-    function draw() {
+    function drawFrame() {
       if (!canvas) return;
-      const W = canvas.width;
-      const H = canvas.height;
+      const W = canvas.width, H = canvas.height;
       ctx.clearRect(0, 0, W, H);
 
-      const cx = W / 2;
-      const cy = H / 2;
-      const r = Math.min(W, H) * 0.40;
+      const cx = W / 2, cy = H / 2;
+      const R = Math.min(W, H) * 0.41;
       const t = Date.now() * 0.001;
 
-      ctx.fillStyle = "#010204";
-      ctx.fillRect(0, 0, W, H);
-
-      for (let i = 0; i < 120; i++) {
-        const sx = ((i * 137.508) % W);
-        const sy = ((i * 97.32 + 40) % H);
-        const br = 0.12 + ((i * 73) % 100) / 100 * 0.35;
-        const sr = i % 7 === 0 ? 1.2 : 0.5;
+      /* stars */
+      for (let i = 0; i < 90; i++) {
+        const sx = (i * 137.508) % W;
+        const sy = (i * 97.32 + 30) % H;
+        const a = 0.08 + (i % 10) / 10 * 0.28;
         ctx.beginPath();
-        ctx.arc(sx, sy, sr, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,255,255,${br})`;
+        ctx.arc(sx, sy, i % 9 === 0 ? 1.0 : 0.45, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,255,255,${a})`;
         ctx.fill();
       }
 
-      const outerHalo = ctx.createRadialGradient(cx, cy, r * 0.98, cx, cy, r * 2.2);
-      outerHalo.addColorStop(0, "rgba(255,90,0,0.10)");
-      outerHalo.addColorStop(0.3, "rgba(255,50,0,0.05)");
-      outerHalo.addColorStop(0.7, "rgba(255,20,0,0.02)");
-      outerHalo.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.beginPath();
-      ctx.arc(cx, cy, r * 2.2, 0, Math.PI * 2);
-      ctx.fillStyle = outerHalo;
-      ctx.fill();
+      /* outer corona halo */
+      const halo = ctx.createRadialGradient(cx, cy, R * 0.92, cx, cy, R * 2.0);
+      halo.addColorStop(0, "rgba(255,100,10,0.09)");
+      halo.addColorStop(0.4, "rgba(255,60,0,0.04)");
+      halo.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.beginPath(); ctx.arc(cx, cy, R * 2.0, 0, Math.PI * 2);
+      ctx.fillStyle = halo; ctx.fill();
 
+      /* alert pulse */
       if (nowcastAlert) {
-        const alertPulse = 0.5 + 0.5 * Math.sin(t * 4);
-        const alertGlow = ctx.createRadialGradient(cx, cy, r * 0.9, cx, cy, r * 1.5);
-        alertGlow.addColorStop(0, `rgba(255,50,0,${0.18 * alertPulse})`);
-        alertGlow.addColorStop(1, "rgba(255,0,0,0)");
-        ctx.beginPath();
-        ctx.arc(cx, cy, r * 1.5, 0, Math.PI * 2);
-        ctx.fillStyle = alertGlow;
-        ctx.fill();
+        const pulse = 0.5 + 0.5 * Math.sin(t * 5);
+        const ap = ctx.createRadialGradient(cx, cy, R * 0.88, cx, cy, R * 1.55);
+        ap.addColorStop(0, `rgba(255,40,0,${0.20 * pulse})`);
+        ap.addColorStop(1, "rgba(255,0,0,0)");
+        ctx.beginPath(); ctx.arc(cx, cy, R * 1.55, 0, Math.PI * 2);
+        ctx.fillStyle = ap; ctx.fill();
       }
 
-      const innerCorona = ctx.createRadialGradient(cx, cy, r * 0.97, cx, cy, r * 1.22);
-      innerCorona.addColorStop(0, "rgba(255,150,20,0.22)");
-      innerCorona.addColorStop(0.4, "rgba(255,100,5,0.10)");
-      innerCorona.addColorStop(1, "rgba(255,60,0,0)");
-      ctx.beginPath();
-      ctx.arc(cx, cy, r * 1.22, 0, Math.PI * 2);
-      ctx.fillStyle = innerCorona;
-      ctx.fill();
+      /* inner corona ring */
+      const corona = ctx.createRadialGradient(cx, cy, R * 0.96, cx, cy, R * 1.18);
+      corona.addColorStop(0, "rgba(255,160,20,0.24)");
+      corona.addColorStop(0.5, "rgba(255,110,5,0.10)");
+      corona.addColorStop(1, "rgba(255,60,0,0)");
+      ctx.beginPath(); ctx.arc(cx, cy, R * 1.18, 0, Math.PI * 2);
+      ctx.fillStyle = corona; ctx.fill();
 
-      [3, 5, 7, 11].forEach((_n, idx) => {
-        const pAngle = (idx * 1.1 + t * 0.07) % (Math.PI * 2);
-        drawProminence(ctx, cx, cy, r, pAngle, t);
-        drawProminence(ctx, cx, cy, r, pAngle + Math.PI, t);
-      });
+      /* solar disk base gradient */
+      const disk = ctx.createRadialGradient(cx - R * 0.22, cy - R * 0.22, 0, cx, cy, R);
+      disk.addColorStop(0.00, "#fff5c0");
+      disk.addColorStop(0.05, "#ffdd50");
+      disk.addColorStop(0.18, "#ffaa00");
+      disk.addColorStop(0.40, "#e86000");
+      disk.addColorStop(0.68, "#b03500");
+      disk.addColorStop(0.88, "#6e1800");
+      disk.addColorStop(1.00, "#2a0600");
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.fillStyle = disk; ctx.fill();
 
-      const solar = ctx.createRadialGradient(cx - r * 0.18, cy - r * 0.2, 0, cx, cy, r);
-      solar.addColorStop(0, "#ffe060");
-      solar.addColorStop(0.08, "#ffb830");
-      solar.addColorStop(0.22, "#f88000");
-      solar.addColorStop(0.45, "#e05500");
-      solar.addColorStop(0.7, "#b03000");
-      solar.addColorStop(0.88, "#7a1800");
-      solar.addColorStop(1, "#3d0800");
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = solar;
-      ctx.fill();
-
+      /* granulation texture overlay (rotated slowly to fake surface motion) */
       ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.clip();
+      ctx.beginPath(); ctx.arc(cx, cy, R * 0.97, 0, Math.PI * 2); ctx.clip();
+      ctx.translate(cx, cy);
+      ctx.rotate(rotRef.current * 0.008);
+      ctx.drawImage(gran, -R, -R, R * 2, R * 2);
+      ctx.restore();
 
-      for (let i = 0; i < 160; i++) {
-        const seed = i * 137.508;
-        const oscillate = Math.sin(seed * 0.1 + t * 0.25) * r * 0.04;
-        const gx = cx + (Math.sin(seed + t * 0.12) * r * 0.82) + oscillate;
-        const gy = cy + (Math.cos(seed * 1.31 + t * 0.08) * r * 0.82);
-        const dist = Math.hypot(gx - cx, gy - cy);
-        if (dist > r * 0.96) continue;
-        const cellR = r * (0.028 + ((seed * 7) % 17) / 17 * 0.022);
-        const bright = i % 4 === 0;
-        const dark = i % 5 === 0;
-        if (dark) {
-          const dg = ctx.createRadialGradient(gx, gy, 0, gx, gy, cellR);
-          dg.addColorStop(0, "rgba(10,3,0,0.62)");
-          dg.addColorStop(0.5, "rgba(10,3,0,0.30)");
-          dg.addColorStop(1, "rgba(10,3,0,0)");
-          ctx.beginPath();
-          ctx.arc(gx, gy, cellR, 0, Math.PI * 2);
-          ctx.fillStyle = dg;
-          ctx.fill();
-        } else if (bright) {
-          const bg = ctx.createRadialGradient(gx, gy, 0, gx, gy, cellR);
-          bg.addColorStop(0, "rgba(255,220,80,0.28)");
-          bg.addColorStop(1, "rgba(255,200,60,0)");
-          ctx.beginPath();
-          ctx.arc(gx, gy, cellR, 0, Math.PI * 2);
-          ctx.fillStyle = bg;
-          ctx.fill();
-        }
-      }
+      /* limb darkening overlay */
+      const limb = ctx.createRadialGradient(cx, cy, R * 0.62, cx, cy, R);
+      limb.addColorStop(0, "rgba(0,0,0,0)");
+      limb.addColorStop(0.7, "rgba(0,0,0,0.06)");
+      limb.addColorStop(1, "rgba(0,0,0,0.72)");
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.fillStyle = limb; ctx.fill();
 
-      const limbDark = ctx.createRadialGradient(cx, cy, r * 0.65, cx, cy, r);
-      limbDark.addColorStop(0, "rgba(0,0,0,0)");
-      limbDark.addColorStop(0.6, "rgba(0,0,0,0.08)");
-      limbDark.addColorStop(1, "rgba(0,0,0,0.68)");
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = limbDark;
-      ctx.fill();
+      /* ── sunspots + active region dots ────────────────────────────────── */
+      ctx.save();
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
 
-      const newCache = new Map<string, { x: number; y: number; r: number }>();
-      const visibleRegions = regions
-        .map((region) => {
-          const pos = latLonTo2D(region.lat, region.lon, cx, cy, r * 0.88, rotRef.current);
-          return { region, ...pos };
-        })
-        .filter((d) => d.visible);
+      const newCache = new Map<string, { cx: number; cy: number; r: number }>();
 
-      for (let i = 0; i < visibleRegions.length; i++) {
-        for (let j = i + 1; j < visibleRegions.length; j++) {
-          const a = visibleRegions[i];
-          const b = visibleRegions[j];
-          drawFieldLines(ctx, a.x, a.y, b.x, b.y, 4);
-        }
-      }
+      regions.forEach((region) => {
+        const adjLon = region.lon + rotRef.current;
+        const lonRad = adjLon * (Math.PI / 180);
+        const latRad = region.lat * (Math.PI / 180);
+        const z = Math.cos(latRad) * Math.cos(lonRad);
+        if (z < 0.12) return; // behind limb
 
-      visibleRegions.forEach(({ region, x, y }) => {
-        const polarity = regions.indexOf(region) % 2 === 0 ? "pos" : "neg";
-        const patchR = region.area / 8 + 18;
-        drawPolarityPatch(ctx, x, y, patchR * 1.6, polarity);
-        const oppositeX = x + (Math.sin(rotRef.current * 0.1) * patchR * 1.2);
-        const oppositeY = y + (Math.cos(rotRef.current * 0.1) * patchR * 0.8);
-        drawPolarityPatch(ctx, oppositeX, oppositeY, patchR, polarity === "pos" ? "neg" : "pos");
-      });
+        const sx = cx + R * 0.90 * Math.cos(latRad) * Math.sin(lonRad);
+        const sy = cy - R * 0.90 * Math.sin(latRad);
 
-      visibleRegions.forEach(({ region, x, y }) => {
-        const spotR = region.area / 18 + 8;
-        drawSunspot(ctx, x, y, spotR, riskColor[region.flare_risk]);
-        newCache.set(region.id, { x, y, r: spotR });
+        /* proximity fade near limb */
+        const limbFade = Math.min(1, (z - 0.12) / 0.25);
+        const spotR = Math.max(5, region.area / 20 + 6) * limbFade;
 
-        ctx.font = `bold ${Math.max(8, spotR * 0.8)}px monospace`;
-        ctx.fillStyle = riskColor[region.flare_risk];
-        ctx.shadowColor = "rgba(0,0,0,0.95)";
-        ctx.shadowBlur = 6;
-        ctx.fillText(region.label, x + spotR * 1.3, y + 3);
+        /* penumbra */
+        const pen = ctx.createRadialGradient(sx, sy, spotR * 0.38, sx, sy, spotR * 1.1);
+        pen.addColorStop(0, "rgba(8,2,0,0.94)");
+        pen.addColorStop(0.5, "rgba(30,10,0,0.75)");
+        pen.addColorStop(0.8, "rgba(90,35,5,0.40)");
+        pen.addColorStop(1, "rgba(180,70,10,0)");
+        ctx.beginPath(); ctx.arc(sx, sy, spotR * 1.1, 0, Math.PI * 2);
+        ctx.fillStyle = pen; ctx.fill();
+
+        /* umbra */
+        const umb = ctx.createRadialGradient(sx - spotR * 0.1, sy - spotR * 0.12, 0, sx, sy, spotR * 0.38);
+        umb.addColorStop(0, "rgba(4,1,0,0.98)");
+        umb.addColorStop(1, "rgba(10,3,0,0.92)");
+        ctx.beginPath(); ctx.arc(sx, sy, spotR * 0.38, 0, Math.PI * 2);
+        ctx.fillStyle = umb; ctx.fill();
+
+        /* risk glow dot */
+        const col = RISK_COLOR[region.flare_risk];
+        const dotR = Math.max(3, spotR * 0.28);
+        const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, dotR * 3);
+        glow.addColorStop(0, col + "cc");
+        glow.addColorStop(0.5, col + "44");
+        glow.addColorStop(1, col + "00");
+        ctx.beginPath(); ctx.arc(sx, sy, dotR * 3, 0, Math.PI * 2);
+        ctx.fillStyle = glow; ctx.fill();
+        ctx.beginPath(); ctx.arc(sx, sy, dotR, 0, Math.PI * 2);
+        ctx.fillStyle = col;
+        ctx.shadowColor = col; ctx.shadowBlur = 6;
+        ctx.fill(); ctx.shadowBlur = 0;
+
+        /* label */
+        ctx.font = `bold ${Math.max(8, spotR * 0.75)}px monospace`;
+        ctx.fillStyle = col;
+        ctx.shadowColor = "rgba(0,0,0,0.95)"; ctx.shadowBlur = 5;
+        ctx.fillText(region.label, sx + dotR * 1.6, sy + 3);
         ctx.shadowBlur = 0;
+
+        newCache.set(region.id, { cx: sx, cy: sy, r: spotR * 1.2 });
       });
 
       ctx.restore();
 
-      const specHighlight = ctx.createRadialGradient(cx - r * 0.38, cy - r * 0.35, 0, cx - r * 0.38, cy - r * 0.35, r * 0.5);
-      specHighlight.addColorStop(0, "rgba(255,255,220,0.06)");
-      specHighlight.addColorStop(1, "rgba(255,255,220,0)");
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = specHighlight;
-      ctx.fill();
+      /* soft specular highlight */
+      const spec = ctx.createRadialGradient(cx - R * 0.32, cy - R * 0.30, 0, cx - R * 0.32, cy - R * 0.30, R * 0.55);
+      spec.addColorStop(0, "rgba(255,255,220,0.07)");
+      spec.addColorStop(1, "rgba(255,255,220,0)");
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.fillStyle = spec; ctx.fill();
 
-      regionPosCache.current = newCache;
-      rotRef.current += 0.045;
-      if (running) animRef.current = requestAnimationFrame(draw);
+      dotCacheRef.current = newCache;
+      rotRef.current += 0.04;
+      if (alive) rafRef.current = requestAnimationFrame(drawFrame);
     }
 
-    draw();
-    return () => {
-      running = false;
-      cancelAnimationFrame(animRef.current);
-    };
+    drawFrame();
+    return () => { alive = false; cancelAnimationFrame(rafRef.current); };
   }, [regions, nowcastAlert]);
 
-  function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const mx = (e.clientX - rect.left) * scaleX;
-    const my = (e.clientY - rect.top) * scaleY;
-    setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-    let found: ActiveRegion | null = null;
-    for (const [id, pos] of regionPosCache.current) {
-      if (Math.hypot(mx - pos.x, my - pos.y) < pos.r * 2.5) {
-        found = regions.find((r) => r.id === id) ?? null;
+  function onMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
+    const c = canvasRef.current; if (!c) return;
+    const rect = c.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) * (c.width / rect.width);
+    const sy = (e.clientY - rect.top) * (c.height / rect.height);
+    setTip({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    let hit: ActiveRegion | null = null;
+    for (const [id, d] of dotCacheRef.current) {
+      if (Math.hypot(sx - d.cx, sy - d.cy) < d.r) {
+        hit = regions.find((r) => r.id === id) ?? null;
         break;
       }
     }
-    setHovered(found);
+    setHovered(hit);
   }
 
   return (
@@ -377,37 +224,45 @@ export function SunVisualization({ regions, nowcastAlert }: Props) {
       <canvas
         ref={canvasRef}
         className="w-full h-full"
-        width={640}
-        height={580}
-        onMouseMove={handleMouseMove}
+        width={600}
+        height={560}
+        onMouseMove={onMouseMove}
         onMouseLeave={() => setHovered(null)}
         style={{ cursor: hovered ? "crosshair" : "default" }}
       />
+
+      {/* hover tooltip */}
       {hovered && (
         <div
-          className="absolute pointer-events-none z-20 bg-[#080c10]/95 border border-white/15 rounded px-2.5 py-2 text-[10px] font-mono shadow-2xl"
-          style={{ left: mousePos.x + 14, top: mousePos.y - 10 }}
+          className="absolute pointer-events-none z-20 rounded border text-[10px] font-mono shadow-2xl px-2.5 py-2"
+          style={{
+            left: tip.x + 14, top: tip.y - 8,
+            backgroundColor: "rgba(6,10,16,0.96)",
+            borderColor: "rgba(255,255,255,0.12)",
+          }}
         >
-          <div className="font-bold text-sm mb-1.5" style={{ color: riskColor[hovered.flare_risk] }}>{hovered.label}</div>
-          <div className="space-y-0.5 text-white/50">
-            <div>Area <span className="text-white/80 ml-2">{hovered.area} μH</span></div>
-            <div>Lat  <span className="text-white/80 ml-2">{hovered.lat > 0 ? "+" : ""}{hovered.lat}°</span></div>
-            <div>Lon  <span className="text-white/80 ml-2">{hovered.lon > 0 ? "+" : ""}{hovered.lon}°</span></div>
-            <div>Risk <span className="font-bold ml-2" style={{ color: riskColor[hovered.flare_risk] }}>{hovered.flare_risk.toUpperCase()}</span></div>
+          <div className="font-bold mb-1" style={{ color: RISK_COLOR[hovered.flare_risk] }}>
+            {hovered.label}
+          </div>
+          <div className="space-y-0.5 text-white/45">
+            <div>Area <span className="text-white/75 ml-2">{hovered.area} μH</span></div>
+            <div>Lat  <span className="text-white/75 ml-2">{hovered.lat > 0 ? "N" : "S"}{Math.abs(hovered.lat)}°</span></div>
+            <div>Lon  <span className="text-white/75 ml-2">{hovered.lon > 0 ? "E" : "W"}{Math.abs(hovered.lon)}°</span></div>
+            <div>Risk <span className="font-bold ml-2" style={{ color: RISK_COLOR[hovered.flare_risk] }}>
+              {hovered.flare_risk.toUpperCase()}
+            </span></div>
           </div>
         </div>
       )}
-      <div className="absolute bottom-1.5 left-2 flex gap-3 text-[9px] font-mono">
-        {Object.entries(riskColor).map(([risk, color]) => (
-          <span key={risk} className="flex items-center gap-1.5" style={{ color: "rgba(255,255,255,0.35)" }}>
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 5px ${color}` }} />
-            {risk.toUpperCase()}
+
+      {/* legend */}
+      <div className="absolute bottom-1.5 left-2 flex gap-3">
+        {Object.entries(RISK_COLOR).map(([k, c]) => (
+          <span key={k} className="flex items-center gap-1 text-[8px] font-mono" style={{ color: "rgba(255,255,255,0.32)" }}>
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c, boxShadow: `0 0 4px ${c}` }} />
+            {k.toUpperCase()}
           </span>
         ))}
-      </div>
-      <div className="absolute top-1.5 right-2 flex gap-2 text-[9px] font-mono text-white/25">
-        <span className="flex items-center gap-1"><span className="w-2 h-1 rounded" style={{ backgroundColor: POLARITY_POS }} />+POLARITY</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-1 rounded" style={{ backgroundColor: POLARITY_NEG }} />−POLARITY</span>
       </div>
     </div>
   );
