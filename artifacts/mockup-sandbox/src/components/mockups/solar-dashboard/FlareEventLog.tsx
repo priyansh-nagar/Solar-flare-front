@@ -15,57 +15,86 @@ interface Props {
   events: FlareEvent[];
 }
 
-const CLS_COLOR: Record<string, string> = {
-  X: "#ef4444", M: "#f97316", C: "#eab308", B: "#38bdf8", A: "#6b7280",
+const C = {
+  border: "#1E2D3D",
+  panel:  "#0E1620",
+  bg2:    "#0C1219",
+  textSec: "#5B7A8A",
+  textDim: "#2E4558",
+  textPri: "#C8D8E8",
+  amber: "#FFB800",
+  red:   "#FF3B3B",
+  green: "#00FF88",
+  cyan:  "#00D4FF",
+  blue:  "#4DAAFF",
 };
 
-function clsColor(cls: string) { return CLS_COLOR[cls?.[0]] ?? "#6b7280"; }
+function clsColor(cls: string) {
+  const ch = cls?.[0];
+  if (ch === "X") return { color: C.red,   borderColor: C.red   };
+  if (ch === "M") return { color: "#FF8C00", borderColor: "#FF8C00" };
+  if (ch === "C") return { color: C.amber, borderColor: C.amber };
+  return               { color: C.blue,  borderColor: C.blue  };
+}
 
 export function FlareEventLog({ events }: Props) {
   const sorted = [...events].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 
   if (sorted.length === 0) {
-    return <div className="flex items-center justify-center h-full text-[9px] font-mono text-white/18">NO EVENTS RECORDED</div>;
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 9, fontFamily: "monospace", color: C.textDim, letterSpacing: "0.1em" }}>
+        NO EVENTS RECORDED
+      </div>
+    );
   }
 
   return (
-    <table className="w-full text-[9px] font-mono">
-      <thead className="sticky top-0 bg-[#060a0e]">
-        <tr className="text-white/22 uppercase tracking-wider border-b border-white/[0.04]">
-          <th className="px-3 py-1 text-left font-normal">Time (UTC)</th>
-          <th className="px-3 py-1 text-left font-normal">Class</th>
-          <th className="px-3 py-1 text-left font-normal">Peak Flux</th>
-          <th className="px-3 py-1 text-left font-normal">Region</th>
-          <th className="px-3 py-1 text-left font-normal">Type</th>
-          <th className="px-3 py-1 text-left font-normal">Lead</th>
-          <th className="px-3 py-1 text-left font-normal">Confidence</th>
+    <table style={{ width: "100%", fontSize: 9, fontFamily: "monospace", borderCollapse: "collapse" }}>
+      <thead style={{ position: "sticky", top: 0, background: "#0A1218", zIndex: 1 }}>
+        <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+          {["Time (UTC)", "Class", "Peak Flux", "Region", "Type", "Lead", "Confidence"].map(h => (
+            <th key={h} style={{ padding: "5px 12px", textAlign: "left", fontWeight: "normal", color: C.textSec, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+              {h}
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>
-        {sorted.map(ev => {
-          const col = clsColor(ev.class);
+        {sorted.map((ev, i) => {
+          const { color, borderColor } = clsColor(ev.class);
           const ts = (() => { try { return format(new Date(ev.time), "MM-dd HH:mm"); } catch { return ev.time; } })();
+          const confColor = ev.confidence > 0.8 ? C.green : ev.confidence > 0.6 ? C.amber : "#FF8C00";
+
           return (
-            <tr key={ev.id} className="border-b border-white/[0.03] hover:bg-white/[0.015] transition-colors">
-              <td className="px-3 py-1.5 text-white/40">{ts}</td>
-              <td className="px-3 py-1.5">
-                <span className="font-bold px-1.5 py-0.5 rounded text-[9px]"
-                  style={{ color: col, background: col + "1a", border: `1px solid ${col}35` }}>
+            <tr
+              key={ev.id}
+              style={{
+                background: i % 2 === 0 ? C.panel : C.bg2,
+                borderBottom: `1px solid ${C.border}`,
+              }}
+            >
+              <td style={{ padding: "5px 12px", color: C.textSec }}>{ts}</td>
+              <td style={{ padding: "5px 12px" }}>
+                <span style={{
+                  color, border: `1px solid ${borderColor}`,
+                  borderRadius: 2, padding: "1px 6px", fontSize: 8,
+                  fontWeight: "bold", background: "transparent",
+                }}>
                   {ev.class}
                 </span>
               </td>
-              <td className="px-3 py-1.5 text-white/40">{ev.peak_flux.toExponential(1)}</td>
-              <td className="px-3 py-1.5 text-white/55">{ev.region}</td>
-              <td className="px-3 py-1.5">
-                <span className={ev.type === "forecast" ? "text-violet-400" : "text-sky-400"}>
+              <td style={{ padding: "5px 12px", color: C.textSec }}>{ev.peak_flux.toExponential(1)}</td>
+              <td style={{ padding: "5px 12px", color: C.textPri }}>{ev.region}</td>
+              <td style={{ padding: "5px 12px" }}>
+                <span style={{ color: ev.type === "forecast" ? "#A78BFA" : C.blue, letterSpacing: "0.08em" }}>
                   {ev.type === "forecast" ? "FCST" : "NOW"}
                 </span>
               </td>
-              <td className="px-3 py-1.5 text-white/35">{ev.lead_time_min ? `+${ev.lead_time_min}m` : "—"}</td>
-              <td className="px-3 py-1.5">
-                <span style={{ color: ev.confidence > 0.8 ? "#4ade80" : ev.confidence > 0.6 ? "#eab308" : "#f97316" }}>
-                  {Math.round(ev.confidence * 100)}%
-                </span>
+              <td style={{ padding: "5px 12px", color: ev.lead_time_min ? C.cyan : C.textDim }}>
+                {ev.lead_time_min ? `+${ev.lead_time_min}m` : "—"}
+              </td>
+              <td style={{ padding: "5px 12px", color: confColor, fontWeight: "bold" }}>
+                {Math.round(ev.confidence * 100)}%
               </td>
             </tr>
           );

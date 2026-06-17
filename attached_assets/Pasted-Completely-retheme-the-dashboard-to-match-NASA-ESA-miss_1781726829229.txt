@@ -1,0 +1,45 @@
+Completely retheme the dashboard to match NASA/ESA mission control aesthetics. Do not change layout or functionality. Only change visual styling.
+Colour system — reduce to essentials:
+
+Primary background: #080C10 (near black with blue tint). Secondary background: #0C1219. Panel background: #0E1620. Border colour: #1E2D3D (single border colour used everywhere). Text primary: #C8D8E8 (cool blue-white). Text secondary: #4A6741 — no wait, #5B7A8A (muted blue-grey). Text dim: #2E4558. Accent green (nominal): #00FF88. Accent amber (warning): #FFB800. Accent red (alert): #FF3B3B. Accent blue (data): #4DAAFF. Accent cyan (secondary data): #00D4FF. No other colours anywhere.
+Remove all of these immediately:
+
+All border-radius above 4px — everything becomes sharp-cornered or maximum 4px.
+
+All backdrop-filter blur effects.
+
+All box-shadow glow effects except on active alert state.
+
+All gradient backgrounds on cards.
+
+All hover scale transforms.
+
+All decorative animations that aren't data-driven.
+Add scan line overlay:
+
+On the root div, add a pseudo-element or overlay div with: background repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px). Position fixed, full viewport, pointer-events none, z-index 9999. This adds a subtle CRT scan line effect over everything.
+Panel styling — replace glassmorphism with instrument panel:
+
+All cards: background #0E1620, border 1px solid #1E2D3D, border-radius 2px, no shadow. Add a 2px top border in the accent colour matching the panel's data type — blue for SoLEXS panels, cyan for HEL1OS, amber for forecast panels. Panel headers: background #0A1218, border-bottom 1px solid #1E2D3D, padding 8px 16px. Header text: 10px, letter-spacing 0.2em, color #5B7A8A, all caps.
+Typography — instrument readout style:
+
+All data numbers: JetBrains Mono, colour #C8D8E8. All labels above numbers: 9px, #5B7A8A, letter-spacing 0.15em, uppercase, display block, margin-bottom 4px. Current class letter: 64px, JetBrains Mono, bold, colour matching class (C=#FFB800, M=#FF8C00, X=#FF3B3B), no text-shadow. Remove all decorative text shadows except on active alert.
+Solar disk — instrument style:
+
+Keep the disk but remove excessive glow. Single clean outer ring in #1E2D3D, 1px. The corona effect: replace animated rotating ellipses with 3 concentric thin rings at increasing radii, each 1px, colours #FFB80015, #FFB80010, #FFB80008. The disk itself: radial gradient white-center to amber to deep orange, no external glow filter. Active region boxes: 1px dashed #00FF88, label in 8px #00FF88 monospace. Sunspot blobs: keep them, darken slightly.
+Light curve chart:
+
+Background #080C10. Grid lines #1E2D3D. Axis labels #5B7A8A, 10px monospace. SoLEXS line: #4DAAFF, 1.5px, no glow filter. Probability line: #FF3B3B, 1.5px, no glow. FAR threshold: #FFB800, 1px dashed, opacity 0.5. No gradient fills under lines. Axis values in scientific notation where appropriate.
+Alert panel — instrument style:
+
+QUIET state: border-top 2px solid #00FF88, text "NOMINAL" in #00FF88, 11px monospace. No background colour change, no pulse animation. A simple green LED dot (6px circle) next to the text. WATCH: border-top amber, text "ELEVATED" amber, amber LED. WARNING: border-top red, text "WARNING" red, red LED with single CSS blink animation (opacity 1→0.3, 1s, infinite). ALERT: border-top red, background rgba(255,59,59,0.06), text "FLARE DETECTED" in red, fast blink. Remove all the large percentage display from alert panel — replace with a vertical bar chart showing C/M/X probabilities as thin horizontal bars with labels.
+Status bar at bottom:
+
+Background #060A0E. Border-top 1px solid #1E2D3D. All status indicators: small 6px circle LED + text. Green LED for connected systems. All text 10px monospace #5B7A8A. Active/connected items in #00FF88. Separated by thin vertical dividers (1px #1E2D3D).
+Replay controls:
+
+Background #060A0E. Border-top 1px solid #1E2D3D. Play button: square not round, 28px, border 1px solid #1E2D3D, background #0E1620, icon in #C8D8E8. Speed buttons: same square style, active state border-color #FFB800 and text #FFB800. Scrubber: thin 2px track in #1E2D3D, filled portion in #4DAAFF, thumb 8px square in #4DAAFF.
+Flare event database:
+
+Header row: background #0A1218, text #5B7A8A 10px monospace uppercase. Data rows: alternating #0E1620 and #0C1219, 1px bottom border #1E2D3D. GOES class badges: square not rounded, 2px border-radius, C=amber border+text, M=orange border+text, X=red border+text, all on transparent background. No filled badge backgrounds. Confidence: colour coded, monospace. Lead time: cyan (#00D4FF) if positive, dim if none.
+The final result should look like it was designed by aerospace engineers, not web developers. Functional, precise, data-forward, with colour used only to communicate status and data type — never for decoration.
