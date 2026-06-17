@@ -1,17 +1,17 @@
 kind = "design"
-previewPath = "/__mockup"
-title = "Canvas"
+previewPath = "/"
+title = "Solar Flare Dashboard"
 version = "1.0.0"
 id = "XegfDyZt7HqfW2Bb8Ghoy"
 
 [[services]]
-localPort = 8081
-name = "Component Preview Server"
-paths = ["/__mockup"]
+localPort = 8080
+name = "Start application"
+paths = ["/"]
 
 [services.env]
-PORT = "8081"
-BASE_PATH = "/__mockup"
+PORT = "8080"
+BASE_PATH = "/"
 
 [services.development]
 run = "pnpm --filter @workspace/mockup-sandbox run dev"
