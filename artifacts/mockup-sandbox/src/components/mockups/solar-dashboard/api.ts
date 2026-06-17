@@ -52,6 +52,21 @@ export interface SolarApiResponse {
   lead_time_peak: number;
 }
 
+export interface SolarPrediction {
+  m_class: number;
+  x_class: number;
+  confidence: number;
+}
+
+export interface Telemetry {
+  soft_xray_flux: number;
+  hard_xray_flux: number;
+  active_region_count: number;
+  flare_index: number;
+  prediction_confidence: number;
+  data_timestamp: string | null;
+}
+
 async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
   for (let i = 0; i < retries; i++) {
     try {

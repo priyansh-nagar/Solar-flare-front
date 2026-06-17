@@ -1,6 +1,26 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType, Component, type ReactNode } from "react";
 
 import { modules as discoveredModules } from "./.generated/mockup-components";
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error.message + "\n" + (error as Error).stack : String(error) };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ background: "#080C10", color: "#FF3B3B", padding: "2rem", fontFamily: "monospace", whiteSpace: "pre-wrap", fontSize: 12 }}>
+          {"RENDER ERROR:\n\n" + this.state.error}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 
@@ -76,15 +96,25 @@ function PreviewRenderer({
 
   if (error) {
     return (
-      <pre style={{ color: "red", padding: "2rem", fontFamily: "system-ui" }}>
-        {error}
-      </pre>
+      <div style={{ background: "#080C10", color: "#FF3B3B", padding: "2rem", fontFamily: "monospace", whiteSpace: "pre-wrap", fontSize: 12 }}>
+        {"LOAD ERROR:\n\n" + error}
+      </div>
     );
   }
 
-  if (!Component) return null;
+  if (!Component) {
+    return (
+      <div style={{ background: "#080C10", color: "#5B7A8A", display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "monospace", fontSize: 11, letterSpacing: "0.15em" }}>
+        LOADING…
+      </div>
+    );
+  }
 
-  return <Component />;
+  return (
+    <ErrorBoundary>
+      <Component />
+    </ErrorBoundary>
+  );
 }
 
 function getBasePath(): string {

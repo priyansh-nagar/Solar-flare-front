@@ -29,7 +29,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=8081 BASE_PATH=/__mockup pnpm --filter @workspace/mockup-sandbox run dev"
+args = "PORT=8081 BASE_PATH=/ pnpm --filter @workspace/mockup-sandbox run dev"
 waitForPort = 8081
 
 [agent]
