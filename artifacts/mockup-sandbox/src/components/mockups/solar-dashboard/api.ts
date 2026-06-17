@@ -1,4 +1,5 @@
 const BASE_URL = "https://solar-1-2krl.onrender.com";
+const LOCAL_API = "/api";
 
 export interface ActiveRegion {
   id: string;
@@ -87,7 +88,7 @@ export async function fetchSolarData(): Promise<SolarApiResponse> {
   const [predRes, healthRes, replayRes] = await Promise.allSettled([
     fetchWithRetry(`${BASE_URL}/predict`),
     fetchWithRetry(`${BASE_URL}/health`),
-    fetchWithRetry(`${BASE_URL}/replay`),
+    fetch(`${LOCAL_API}/replay`),
   ]);
 
   const pred   = predRes.status   === "fulfilled" ? await predRes.value.json().catch(() => null)   : null;

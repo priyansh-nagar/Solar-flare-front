@@ -1,5 +1,5 @@
 import {
-  ComposedChart, Line, XAxis, YAxis, CartesianGrid,
+  ComposedChart, AreaChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ReferenceLine, ResponsiveContainer, Brush, Area,
 } from "recharts";
 import { format } from "date-fns";
@@ -199,28 +199,28 @@ export function XRayLightCurves({ series, flareEvents = [], probM30 = 0 }: Props
         <div style={{ fontSize: 8, letterSpacing: "0.15em", color: "#2E4558", textTransform: "uppercase", fontFamily: "monospace", marginBottom: 4 }}>
           Timeline Navigator — Drag to Scroll
         </div>
-        <ResponsiveContainer width="100%" height={34}>
-          <ComposedChart data={processed} margin={{ left: 4, right: 48 }}>
+        <ResponsiveContainer width="100%" height={52}>
+          <AreaChart data={processed} margin={{ top: 2, right: 48, bottom: 0, left: 4 }}>
             <XAxis dataKey="time" hide />
-            <YAxis yAxisId="left" hide domain={[-9, -3]} />
-            <YAxis yAxisId="right" hide domain={[0, 100]} orientation="right" />
+            <YAxis hide domain={[-9, -3]} />
             <Area
-              yAxisId="left"
               type="monotone"
               dataKey="soft"
               stroke="#4DAAFF"
               strokeWidth={1}
               fill="#4DAAFF"
-              fillOpacity={0.08}
+              fillOpacity={0.12}
               dot={false}
               isAnimationActive={false}
             />
             <Brush
               dataKey="time"
-              height={28}
-              stroke="#1E2D3D"
+              height={36}
+              y={8}
+              stroke="#2A4158"
               fill="#0C1219"
-              travellerWidth={5}
+              fillOpacity={0.85}
+              travellerWidth={6}
               startIndex={brushRange[0]}
               endIndex={brushRange[1]}
               onChange={(e: any) => {
@@ -229,7 +229,7 @@ export function XRayLightCurves({ series, flareEvents = [], probM30 = 0 }: Props
                 }
               }}
             />
-          </ComposedChart>
+          </AreaChart>
         </ResponsiveContainer>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 7, fontFamily: "monospace", color: "#2E4558", marginTop: 2, padding: "0 4px" }}>
           <span>← SCROLL BACKWARD</span>
