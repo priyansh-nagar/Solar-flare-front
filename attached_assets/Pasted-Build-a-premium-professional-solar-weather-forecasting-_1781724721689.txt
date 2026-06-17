@@ -1,0 +1,154 @@
+Build a premium, professional solar weather forecasting dashboard for an AI-powered Solar Flare Prediction System using React + Vite + TypeScript + Tailwind CSS.
+
+DESIGN GOAL:
+The dashboard must look like software used by NASA, NOAA SWPC, ESA, or mission control operators. Avoid startup-style cards, colorful gradients, glassmorphism, cartoon visuals, or consumer-app aesthetics. The interface should feel like a real scientific monitoring platform used by space weather analysts.
+
+THEME:
+
+* Dark mission-control theme
+* Near-black background (#050608)
+* Professional scientific color palette
+* High contrast data visualization
+* Clean typography
+* Minimal animations
+* No flashy effects
+* Dense information display
+* Premium enterprise appearance
+
+LAYOUT:
+
+LEFT PANEL (largest section):
+
+* Large interactive Sun visualization occupying 50–60% of dashboard width
+* Render a rotating 3D Sun using Three.js
+* Slow realistic solar rotation
+* Dynamic texture resembling magnetogram imagery
+* Support overlays for active regions
+* Display region labels such as AR4087, AR4085, etc.
+* Hovering over a region shows metadata
+* Real-time scientific visualization feel
+
+TOP RIGHT PANEL:
+FLARE ALERT STATUS
+
+Show:
+
+* Current alert level
+* Probability gauge
+* Risk category
+
+Alert levels:
+NORMAL
+ELEVATED
+HIGH
+SEVERE
+
+Colors:
+Green → Yellow → Orange → Red
+
+Display:
+
+* M-class probability
+* X-class probability
+* Confidence score
+
+MIDDLE RIGHT PANEL:
+FLARE PROBABILITY FORECAST
+
+Display probabilities returned by FastAPI backend.
+
+Show:
+
+* B-class
+* C-class
+* M-class
+* X-class
+
+Use professional line charts.
+
+Chart requirements:
+
+* Black background
+* Thin scientific gridlines
+* UTC timestamps
+* Interactive tooltips
+* Zoom support
+
+BOTTOM SECTION:
+SOLAR ACTIVITY TELEMETRY
+
+Display:
+
+* Soft X-ray Flux
+* Hard X-ray Flux
+* Active Region Count
+* Flare Index
+* Prediction Confidence
+* Data Timestamp
+
+Use mission-control style data tables.
+
+REAL-TIME STATUS BAR:
+
+Show:
+Backend Status
+Model Status
+Inference Time
+Last Prediction Time
+System Health
+
+Green indicators when healthy.
+
+API INTEGRATION:
+
+Backend URL:
+https://solar-1-2krl.onrender.com
+
+Create a dedicated API service layer.
+
+Requirements:
+
+* Poll backend every 30 seconds
+* Loading states
+* Error handling
+* Retry logic
+* Health-check endpoint support
+
+VISUAL QUALITY REQUIREMENTS:
+
+The dashboard must:
+
+* Look like a real operational space weather center
+* Impress hackathon judges immediately
+* Be portfolio-quality
+* Feel expensive and professional
+* Avoid generic dashboard templates
+* Use realistic scientific visualization patterns
+
+TECH STACK:
+
+React
+TypeScript
+Vite
+TailwindCSS
+Three.js
+React Three Fiber
+Recharts
+Framer Motion (minimal usage)
+
+RESPONSIVE:
+
+Desktop-first.
+Optimize for large monitors.
+Tablet support optional.
+Mobile support not required initially.
+
+DELIVER:
+
+* Complete component architecture
+* Dashboard layout
+* API integration layer
+* Reusable chart components
+* Three.js rotating Sun visualization
+* Production-quality styling
+* Clean folder structure
