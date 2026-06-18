@@ -1,5 +1,6 @@
-const BASE_URL = "https://solar-1-2krl.onrender.com";
-const LOCAL_API = "/api";
+const BASE_URL  = "https://solar-1-2krl.onrender.com";
+// When deployed to Vercel, point /api calls at the Render backend via VITE_API_URL env var
+const LOCAL_API = (import.meta as any).env?.VITE_API_URL ?? "/api";
 
 export interface ActiveRegion {
   id: string;
@@ -119,9 +120,19 @@ function buildXRaySeries(pred: any): XRayPoint[] {
   const now = Date.now();
   const N = 360; // 6 hours × 60 min
 
-  // Inject synthetic flare bumps for realism
-  const flareAt = [80, 210, 310];
-  const flareClass = [1e-5, 2e-4, 5e-6];
+  // Inject synthetic flare bumps at random positions so the shape differs each reload
+  const rndFlare = () => Math.floor(Math.random() * N);
+  const flareAt = [
+    20  + Math.floor(Math.random() * 100),
+    140 + Math.floor(Math.random() * 80),
+    250 + Math.floor(Math.random() * 90),
+  ].sort((a, b) => a - b);
+  const flareClass = [
+    [3e-6, 8e-5, 5e-5][Math.floor(Math.random() * 3)],
+    [2e-4, 8e-5, 4e-4][Math.floor(Math.random() * 3)],
+    [5e-6, 3e-5, 1e-5][Math.floor(Math.random() * 3)],
+  ];
+  void rndFlare;
 
   return Array.from({ length: N }, (_, i) => {
     const t = new Date(now - (N - 1 - i) * 60_000).toISOString();

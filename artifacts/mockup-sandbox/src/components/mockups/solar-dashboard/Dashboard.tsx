@@ -232,6 +232,8 @@ export function Dashboard() {
   const [replayActive, setReplayActive] = useState(false);
   const [replayProgress, setReplayProgress] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
+  const xraySeededRef   = useRef(false);
+  const replayActiveRef = useRef(false); // sync ref so WS handler can read current value without closure stale state
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -241,6 +243,13 @@ export function Dashboard() {
     try {
       const r = await fetchSolarData();
       setData(r); setError(null); setLastUp(new Date());
+      // Seed xraySeries once from the HTTP data so the chart/navigator
+      // always have a full 360-point history on load (no blank-chart flash).
+      // After this, every incoming WS point appends to the seeded series.
+      if (!xraySeededRef.current && r.xray_series.length > 0) {
+        xraySeededRef.current = true;
+        setXraySeries(r.xray_series);
+      }
       // Always refresh flare events from HTTP, but keep any live WS alerts at the top
       if (r.flare_events.length > 0) {
         setLiveFlareEvents((prev) => {
@@ -260,7 +269,10 @@ export function Dashboard() {
 
   useEffect(() => {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${proto}//${window.location.host}/api/ws`;
+    // In production (Vercel), point at the Render backend via VITE_WS_URL;
+    // in dev, use the same host so the Vite proxy works.
+    const wsBase = (import.meta as any).env?.VITE_WS_URL ?? `${proto}//${window.location.host}`;
+    const url = `${wsBase}/api/ws`;
     let ws: WebSocket;
     let retryTimer: ReturnType<typeof setTimeout>;
 
@@ -299,19 +311,28 @@ export function Dashboard() {
             }
 
           } else if (msg.type === "replay_start") {
+            replayActiveRef.current = true;
             setReplayActive(true);
             setReplayProgress(0);
             setXraySeries([]); // clear so chart rebuilds from replay data
 
           } else if (msg.type === "replay_end") {
+            replayActiveRef.current = false;
             setReplayActive(false);
             setReplayProgress(100);
+            // Allow re-seeding from HTTP on next poll so the live chart
+            // starts fresh after replay instead of showing stale replay data
+            xraySeededRef.current = false;
 
           } else if (msg.type === "alert") {
             const id = Date.now();
-            const toast: ToastData = { id, born: id, ...msg };
-            setToasts((prev) => [...prev.slice(-2), toast]);
-            setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), TOAST_TTL);
+            // Suppress toasts during replay — the replay can fire dozens of alerts
+            // in ~24 seconds (one per threshold-crossing point), which would spam the UI.
+            if (!replayActiveRef.current) {
+              const toast: ToastData = { id, born: id, ...msg };
+              setToasts((prev) => [...prev.slice(-2), toast]);
+              setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), TOAST_TTL);
+            }
             // Add alert as a new entry in the live flare event log
             setLiveFlareEvents((prev) => {
               const newEv = {
@@ -650,12 +671,13 @@ export function Dashboard() {
                 // During replay: only show replay (WS) data — never fall back to
                 // the static HTTP seed, which would cause a jarring source-switch
                 // and brush-range corruption mid-replay.
-                // xraySeries is pure live WS data — never pre-seeded from HTTP.
-                // Show it as soon as the first point arrives so the navigator
-                // always reflects current, real-time curves, not synthetic history.
+                // xraySeries is seeded from HTTP on load (so the chart is never blank),
+                // then each WS point appends. Once seeded it always has >= 360 pts,
+                // so the >= 30 guard is satisfied immediately. The HTTP seed uses
+                // random flare-bump positions, so the navigator shape differs each reload.
                 const activeSeries = replayActive
                   ? (xraySeries.length > 0 ? xraySeries : null)
-                  : (xraySeries.length > 0 ? xraySeries : d.xray_series.length >= 30 ? d.xray_series : null);
+                  : (xraySeries.length >= 30 ? xraySeries : d.xray_series.length >= 30 ? d.xray_series : null);
 
                 return activeSeries
                   ? (
