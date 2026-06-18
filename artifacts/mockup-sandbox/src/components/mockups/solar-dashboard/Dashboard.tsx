@@ -609,31 +609,55 @@ export function Dashboard() {
                     </div>
                   </div>
                 )}
-                <button
-                  onClick={() => { if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "replay_start" })); }}
-                  disabled={replayActive || !wsConnected}
-                  style={{
-                    background: "none", border: `1px solid ${replayActive || !wsConnected ? C.border : C.amber}`,
-                    color: replayActive || !wsConnected ? C.textDim : C.amber,
-                    fontFamily: "monospace", fontSize: 8, letterSpacing: "0.12em",
-                    padding: "2px 8px", borderRadius: 2, cursor: replayActive || !wsConnected ? "not-allowed" : "pointer",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {replayActive ? "▶ PLAYING…" : "▶ REPLAY"}
-                </button>
+                {replayActive && (
+                  <button
+                    onClick={() => {
+                      if (wsRef.current?.readyState === WebSocket.OPEN) {
+                        wsRef.current.send(JSON.stringify({ type: "replay_stop" }));
+                      }
+                      setReplayActive(false);
+                      setReplayProgress(0);
+                    }}
+                    style={{
+                      background: "none", border: `1px solid #FF3B3B`,
+                      color: "#FF3B3B",
+                      fontFamily: "monospace", fontSize: 8, letterSpacing: "0.12em",
+                      padding: "2px 8px", borderRadius: 2, cursor: "pointer",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    ■ STOP
+                  </button>
+                )}
+                {!replayActive && (
+                  <button
+                    onClick={() => { if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "replay_start" })); }}
+                    disabled={!wsConnected}
+                    style={{
+                      background: "none", border: `1px solid ${!wsConnected ? C.border : C.amber}`,
+                      color: !wsConnected ? C.textDim : C.amber,
+                      fontFamily: "monospace", fontSize: 8, letterSpacing: "0.12em",
+                      padding: "2px 8px", borderRadius: 2, cursor: !wsConnected ? "not-allowed" : "pointer",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    ▶ REPLAY
+                  </button>
+                )}
                 <span style={{ fontSize: 8, color: C.textDim, fontFamily: "monospace", letterSpacing: "0.1em" }}>6h · GOES-16 · drag navigator to scroll</span>
               </div>
             </div>
             <div className="flex-1 min-h-0">
-              {(xraySeries.length > 0 || d.xray_series.length > 0)
-                ? <XRayLightCurves series={xraySeries.length > 0 ? xraySeries : d.xray_series} flareEvents={flareAnno} probM30={(wsForecast ?? d).p_30min} />
-                : (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 9, fontFamily: "monospace", color: C.textDim }}>
-                    AWAITING DATA STREAM…
-                  </div>
-                )
-              }
+              {(() => {
+                const activeSeries = xraySeries.length >= 30 ? xraySeries : d.xray_series.length >= 30 ? d.xray_series : null;
+                return activeSeries
+                  ? <XRayLightCurves series={activeSeries} flareEvents={flareAnno} probM30={(wsForecast ?? d).p_30min} />
+                  : (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 9, fontFamily: "monospace", color: C.textDim }}>
+                      AWAITING DATA STREAM…
+                    </div>
+                  );
+              })()}
             </div>
           </Panel>
 

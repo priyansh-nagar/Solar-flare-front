@@ -163,10 +163,19 @@ wss.on("connection", (ws) => {
       }
 
       idx++;
-      replayTimeout = setTimeout(sendNext, 200); // 200 ms/point → 480 pts ≈ 96 s total
+      replayTimeout = setTimeout(sendNext, 50); // 50 ms/point → 480 pts ≈ 24 s total
     }
 
     sendNext();
+  }
+
+  function stopReplay() {
+    stopAll();
+    logger.info("Replay stopped by client — resuming live mode");
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: "replay_end" }));
+    }
+    startLive();
   }
 
   // Handle messages from the client
@@ -174,6 +183,7 @@ wss.on("connection", (ws) => {
     try {
       const msg = JSON.parse(raw.toString());
       if (msg.type === "replay_start") startReplay();
+      else if (msg.type === "replay_stop") stopReplay();
     } catch { /* ignore */ }
   });
 
