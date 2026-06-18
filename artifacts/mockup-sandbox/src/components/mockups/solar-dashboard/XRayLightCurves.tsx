@@ -3,7 +3,7 @@ import {
   Tooltip, ReferenceLine, ResponsiveContainer, Area,
 } from "recharts";
 import { format } from "date-fns";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 export interface XRayPoint {
   time: string;
@@ -235,10 +235,27 @@ function NavigatorMinimap({
 
 /* ── main component ──────────────────────────────────────────────────────── */
 export function XRayLightCurves({ series, flareEvents = [], probM30 = 0 }: Props) {
+  const WINDOW = 60; // visible points (~60 min at 1-min cadence, or ~3 min at 3-s WS cadence)
+
   const [brushRange, setBrushRange] = useState<[number, number]>(() => [
-    Math.max(0, series.length - 60),
+    Math.max(0, series.length - WINDOW),
     series.length - 1,
   ]);
+
+  // Auto-advance the window when new points arrive, but only if the user is
+  // already watching the live edge (right handle within 5 pts of the end).
+  useEffect(() => {
+    if (series.length === 0) return;
+    const end = series.length - 1;
+    setBrushRange((prev) => {
+      const nearLive = prev[1] >= end - 5;
+      if (!nearLive) return prev; // user panned back — don't force-follow
+      const win = prev[1] - prev[0];
+      const newEnd = end;
+      const newStart = Math.max(0, newEnd - win);
+      return [newStart, newEnd];
+    });
+  }, [series.length]);
 
   const processed = series.map((d) => ({
     time: d.time,

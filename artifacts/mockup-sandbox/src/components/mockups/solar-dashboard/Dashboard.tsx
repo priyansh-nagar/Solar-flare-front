@@ -4,7 +4,7 @@ import { XRayLightCurves } from "./XRayLightCurves";
 import { FlareEventLog } from "./FlareEventLog";
 import { StatusBar } from "./StatusBar";
 import { fetchSolarData } from "./api";
-import type { SolarApiResponse } from "./api";
+import type { SolarApiResponse, XRayPoint } from "./api";
 import { format } from "date-fns";
 
 const POLL = 30_000;
@@ -227,7 +227,9 @@ export function Dashboard() {
   const [wsConnected, setWsConnected] = useState(false);
   const [wsForecast, setWsForecast] = useState<{ p_15min: number; p_30min: number; p_extreme: number } | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
+  const [xraySeries, setXraySeries] = useState<XRayPoint[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const xraySeededRef = useRef(false);
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -237,6 +239,11 @@ export function Dashboard() {
     try {
       const r = await fetchSolarData();
       setData(r); setError(null); setLastUp(new Date());
+      // Seed the live series only once from the first HTTP response
+      if (!xraySeededRef.current && r.xray_series.length > 0) {
+        xraySeededRef.current = true;
+        setXraySeries(r.xray_series);
+      }
     } catch (e) { setError(e instanceof Error ? e.message : "error"); }
     finally { setLoading(false); }
   }, []);
@@ -265,6 +272,19 @@ export function Dashboard() {
           const msg = JSON.parse(ev.data as string);
           if (msg.type === "forecast") {
             setWsForecast({ p_15min: msg.p_15min, p_30min: msg.p_30min, p_extreme: msg.p_extreme });
+            // Append a live X-ray data point using a random-walk from the last known value
+            setXraySeries((prev) => {
+              if (prev.length === 0) return prev;
+              const last = prev[prev.length - 1];
+              const noise = () => 1 + (Math.random() - 0.5) * 0.08;
+              const wave  = 1 + 0.15 * Math.sin(Date.now() / 60_000);
+              const newPt: XRayPoint = {
+                time: new Date().toISOString(),
+                soft: Math.max(1e-9, last.soft * noise() * wave),
+                hard: Math.max(1e-9, last.hard * noise() * wave * 0.85),
+              };
+              return [...prev.slice(-359), newPt];
+            });
           } else if (msg.type === "alert") {
             const id = Date.now();
             const toast: ToastData = { id, born: id, ...msg };
@@ -540,7 +560,7 @@ export function Dashboard() {
             <PanelHeader label="X-ray Light Curves · Nowcasting Trigger" right="6h · GOES-16 · drag navigator to scroll" />
             <div className="flex-1 min-h-0">
               {d.xray_series.length > 0
-                ? <XRayLightCurves series={d.xray_series} flareEvents={flareAnno} probM30={d.p_30min} />
+                ? <XRayLightCurves series={xraySeries.length > 0 ? xraySeries : d.xray_series} flareEvents={flareAnno} probM30={(wsForecast ?? d).p_30min} />
                 : (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 9, fontFamily: "monospace", color: C.textDim }}>
                     AWAITING DATA STREAM…
