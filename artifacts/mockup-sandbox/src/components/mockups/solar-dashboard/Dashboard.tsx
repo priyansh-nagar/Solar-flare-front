@@ -233,7 +233,6 @@ export function Dashboard() {
   const [replayProgress, setReplayProgress] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const xraySeededRef = useRef(false);
-  const flareEventsSeededRef = useRef(false);
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -247,9 +246,15 @@ export function Dashboard() {
         xraySeededRef.current = true;
         setXraySeries(r.xray_series);
       }
-      if (!flareEventsSeededRef.current && r.flare_events.length > 0) {
-        flareEventsSeededRef.current = true;
-        setLiveFlareEvents(r.flare_events);
+      // Always refresh flare events from HTTP, but keep any live WS alerts at the top
+      if (r.flare_events.length > 0) {
+        setLiveFlareEvents((prev) => {
+          const wsAlerts = prev.filter((e) => e.id.startsWith("ws-"));
+          const merged = [...wsAlerts, ...r.flare_events];
+          // Deduplicate by id and keep newest 20
+          const seen = new Set<string>();
+          return merged.filter((e) => seen.has(e.id) ? false : (seen.add(e.id), true)).slice(0, 20);
+        });
       }
     } catch (e) { setError(e instanceof Error ? e.message : "error"); }
     finally { setLoading(false); }

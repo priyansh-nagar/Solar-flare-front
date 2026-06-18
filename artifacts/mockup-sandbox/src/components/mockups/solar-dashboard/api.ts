@@ -200,11 +200,43 @@ function mockHealth(): HealthStatus {
 
 function mockFlareEvents(): FlareEventRaw[] {
   const now = Date.now();
-  return [
-    { id: "e1", time: new Date(now - 3 * 3600_000).toISOString(), class: "M2.3", peak_flux: 2.3e-5, region: "AR4081", type: "nowcast", confidence: 0.93 },
-    { id: "e2", time: new Date(now - 1.5 * 3600_000).toISOString(), class: "C7.1", peak_flux: 7.1e-6, region: "AR4087", type: "nowcast", confidence: 0.88 },
-    { id: "e3", time: new Date(now - 45 * 60_000).toISOString(), class: "M1.1", peak_flux: 1.1e-5, region: "AR4081", type: "forecast", confidence: 0.76, lead_time_min: 14 },
-    { id: "e4", time: new Date(now - 20 * 60_000).toISOString(), class: "B9.4", peak_flux: 9.4e-7, region: "AR4085", type: "nowcast", confidence: 0.82 },
-    { id: "e5", time: new Date(now - 8 * 60_000).toISOString(), class: "C2.4", peak_flux: 2.4e-6, region: "AR4087", type: "forecast", confidence: 0.71, lead_time_min: 8 },
+  const regions = ["AR4081", "AR4085", "AR4087", "AR4083"];
+  const classPool: { cls: string; flux: number }[] = [
+    { cls: "X1.2", flux: 1.2e-4 }, { cls: "X2.1", flux: 2.1e-4 },
+    { cls: "M5.3", flux: 5.3e-5 }, { cls: "M3.1", flux: 3.1e-5 },
+    { cls: "M2.3", flux: 2.3e-5 }, { cls: "M1.1", flux: 1.1e-5 },
+    { cls: "C9.4", flux: 9.4e-6 }, { cls: "C7.1", flux: 7.1e-6 },
+    { cls: "C4.8", flux: 4.8e-6 }, { cls: "C2.4", flux: 2.4e-6 },
+    { cls: "B9.4", flux: 9.4e-7 }, { cls: "B6.2", flux: 6.2e-7 },
   ];
+
+  const rng = (min: number, max: number) => min + Math.random() * (max - min);
+  const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+  // Spread 8 events over the last 8 hours at random offsets
+  const offsets = [
+    rng(7 * 3600_000, 8 * 3600_000),
+    rng(5 * 3600_000, 7 * 3600_000),
+    rng(3.5 * 3600_000, 5 * 3600_000),
+    rng(2 * 3600_000, 3.5 * 3600_000),
+    rng(80 * 60_000, 2 * 3600_000),
+    rng(40 * 60_000, 80 * 60_000),
+    rng(15 * 60_000, 40 * 60_000),
+    rng(3 * 60_000, 15 * 60_000),
+  ];
+
+  return offsets.map((offset, i) => {
+    const entry = pick(classPool);
+    const isForecast = Math.random() < 0.35;
+    return {
+      id: `mock-${Math.floor(now / 30_000)}-${i}`,
+      time: new Date(now - offset).toISOString(),
+      class: entry.cls,
+      peak_flux: entry.flux * (0.85 + Math.random() * 0.30),
+      region: pick(regions),
+      type: isForecast ? "forecast" : "nowcast",
+      confidence: parseFloat((0.65 + Math.random() * 0.32).toFixed(2)),
+      ...(isForecast ? { lead_time_min: Math.round(rng(5, 25)) } : {}),
+    } as FlareEventRaw;
+  });
 }
