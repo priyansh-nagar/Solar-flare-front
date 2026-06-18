@@ -1,6 +1,6 @@
 {
   "buildCommand": "PORT=3000 BASE_PATH=/ pnpm --filter @workspace/mockup-sandbox run build",
-  "outputDirectory": "artifacts/mockup-sandbox/dist",
+  "outputDirectory": "dist",
   "installCommand": "pnpm install",
   "framework": null,
   "rewrites": [
