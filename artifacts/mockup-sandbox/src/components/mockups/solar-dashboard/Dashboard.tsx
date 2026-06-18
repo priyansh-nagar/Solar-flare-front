@@ -282,6 +282,7 @@ export function Dashboard() {
                 time: new Date().toISOString(),
                 soft: Math.max(1e-9, last.soft * noise() * wave),
                 hard: Math.max(1e-9, last.hard * noise() * wave * 0.85),
+                prob: msg.p_30min as number,  // live probability from WS
               };
               return [...prev.slice(-359), newPt];
             });

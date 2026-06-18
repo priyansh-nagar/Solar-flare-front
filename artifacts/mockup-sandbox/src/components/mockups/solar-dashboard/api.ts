@@ -14,6 +14,7 @@ export interface XRayPoint {
   time: string;
   soft: number;
   hard: number;
+  prob?: number; // P(M+ 30min) 0–1, stored per-point
 }
 
 export interface HealthStatus {
@@ -138,10 +139,23 @@ function buildXRaySeries(pred: any): XRayPoint[] {
       }
     });
 
+    // Probability follows a slow sine + flare bumps, stays realistic (5–40%)
+    const baseProb = 0.14 + 0.08 * Math.sin(i / 55 + 1.2);
+    let probAdd = 0;
+    flareAt.forEach((fi) => {
+      const dist = i - fi;
+      if (dist >= -10 && dist < 25) {
+        const envelope = Math.exp(-Math.abs(dist - 3) / 10) * 0.38;
+        probAdd += envelope;
+      }
+    });
+    const prob = Math.min(0.95, Math.max(0.04, baseProb + probAdd + (Math.random() - 0.5) * 0.04));
+
     return {
       time: t,
       soft: baseSoft * backgroundWave * noise() + softAdd,
       hard: baseHard * backgroundWave * noise() * 0.8 + hardAdd,
+      prob,
     };
   });
 }

@@ -9,13 +9,14 @@ export interface XRayPoint {
   time: string;
   soft: number;
   hard: number;
+  prob?: number; // P(M+ 30min) in 0–1, stored per point
   label?: string;
 }
 
 interface Props {
   series: XRayPoint[];
   flareEvents?: { time: string; class: string; label: string }[];
-  probM30?: number;
+  probM30?: number; // fallback for points without a stored prob
 }
 
 const GOES_THRESHOLDS = [
@@ -261,7 +262,8 @@ export function XRayLightCurves({ series, flareEvents = [], probM30 = 0 }: Props
     time: d.time,
     soft: logScale(d.soft),
     hard: logScale(d.hard),
-    prob: probM30 * 100,
+    // Use the per-point stored prob; fall back to the live scalar only if absent
+    prob: d.prob !== undefined ? d.prob * 100 : (probM30 ?? 0) * 100,
   }));
 
   const visible = processed.slice(brushRange[0], brushRange[1] + 1);
