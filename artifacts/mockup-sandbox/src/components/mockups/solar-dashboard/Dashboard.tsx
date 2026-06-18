@@ -232,7 +232,6 @@ export function Dashboard() {
   const [replayActive, setReplayActive] = useState(false);
   const [replayProgress, setReplayProgress] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
-  const xraySeededRef = useRef(false);
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -242,10 +241,6 @@ export function Dashboard() {
     try {
       const r = await fetchSolarData();
       setData(r); setError(null); setLastUp(new Date());
-      if (!xraySeededRef.current && r.xray_series.length > 0) {
-        xraySeededRef.current = true;
-        setXraySeries(r.xray_series);
-      }
       // Always refresh flare events from HTTP, but keep any live WS alerts at the top
       if (r.flare_events.length > 0) {
         setLiveFlareEvents((prev) => {
@@ -311,8 +306,6 @@ export function Dashboard() {
           } else if (msg.type === "replay_end") {
             setReplayActive(false);
             setReplayProgress(100);
-            // Re-seed from HTTP data on next poll
-            xraySeededRef.current = false;
 
           } else if (msg.type === "alert") {
             const id = Date.now();
@@ -657,9 +650,12 @@ export function Dashboard() {
                 // During replay: only show replay (WS) data — never fall back to
                 // the static HTTP seed, which would cause a jarring source-switch
                 // and brush-range corruption mid-replay.
+                // xraySeries is pure live WS data — never pre-seeded from HTTP.
+                // Show it as soon as the first point arrives so the navigator
+                // always reflects current, real-time curves, not synthetic history.
                 const activeSeries = replayActive
                   ? (xraySeries.length > 0 ? xraySeries : null)
-                  : (xraySeries.length >= 30 ? xraySeries : d.xray_series.length >= 30 ? d.xray_series : null);
+                  : (xraySeries.length > 0 ? xraySeries : d.xray_series.length >= 30 ? d.xray_series : null);
 
                 return activeSeries
                   ? (
