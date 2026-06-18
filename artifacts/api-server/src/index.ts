@@ -33,8 +33,8 @@ wss.on("connection", (ws) => {
     if (ws.readyState !== ws.OPEN) return;
 
     tickCount++;
-    // Spike on tick 1 (immediate demo) then every 3rd tick (≈9 s)
-    const spike = tickCount === 1 || tickCount % 3 === 0;
+    // Spike once every 100 ticks (≈5 minutes at 3 s intervals)
+    const spike = tickCount % 100 === 0;
     const { p_15min, p_30min, p_extreme } = makeForecast(spike);
     const timestamp = new Date().toISOString();
 
