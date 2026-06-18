@@ -24,10 +24,25 @@ function makeForecast(spike = false) {
   return { p_15min, p_30min, p_extreme };
 }
 
+/** Server-side random walk for GOES-like X-ray flux values */
+function makeXRay(prevSoft: number, prevHard: number, spike = false) {
+  const noise  = () => 1 + (Math.random() - 0.5) * 0.10;
+  const wave   = 1 + 0.12 * Math.sin(Date.now() / 70_000);
+  const soft = spike
+    ? parseFloat((prevSoft * noise() * wave * (8 + Math.random() * 12)).toExponential(4))
+    : parseFloat((Math.max(1e-9, prevSoft * noise() * wave)).toExponential(4));
+  const hard = spike
+    ? parseFloat((prevHard * noise() * wave * (6 + Math.random() * 10)).toExponential(4))
+    : parseFloat((Math.max(1e-9, prevHard * noise() * wave * 0.88)).toExponential(4));
+  return { soft_flux: soft, hard_flux: hard };
+}
+
 wss.on("connection", (ws) => {
   logger.info("WebSocket client connected");
 
-  let tickCount = 0;
+  let tickCount  = 0;
+  let softFlux   = 2.3e-6;   // start at mid C-class
+  let hardFlux   = 8.1e-8;
 
   function broadcast() {
     if (ws.readyState !== ws.OPEN) return;
@@ -36,6 +51,9 @@ wss.on("connection", (ws) => {
     // Spike once every 100 ticks (≈5 minutes at 3 s intervals)
     const spike = tickCount % 100 === 0;
     const { p_15min, p_30min, p_extreme } = makeForecast(spike);
+    const { soft_flux, hard_flux }        = makeXRay(softFlux, hardFlux, spike);
+    softFlux = soft_flux;
+    hardFlux = hard_flux;
     const timestamp = new Date().toISOString();
 
     ws.send(JSON.stringify({
@@ -44,6 +62,8 @@ wss.on("connection", (ws) => {
       p_15min,
       p_30min,
       p_extreme,
+      soft_flux,
+      hard_flux,
       model_version: "v2.1",
     }));
 

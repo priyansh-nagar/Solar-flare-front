@@ -272,17 +272,14 @@ export function Dashboard() {
           const msg = JSON.parse(ev.data as string);
           if (msg.type === "forecast") {
             setWsForecast({ p_15min: msg.p_15min, p_30min: msg.p_30min, p_extreme: msg.p_extreme });
-            // Append a live X-ray data point using a random-walk from the last known value
+            // Append a live X-ray data point using server-authoritative flux values
             setXraySeries((prev) => {
               if (prev.length === 0) return prev;
-              const last = prev[prev.length - 1];
-              const noise = () => 1 + (Math.random() - 0.5) * 0.08;
-              const wave  = 1 + 0.15 * Math.sin(Date.now() / 60_000);
               const newPt: XRayPoint = {
-                time: new Date().toISOString(),
-                soft: Math.max(1e-9, last.soft * noise() * wave),
-                hard: Math.max(1e-9, last.hard * noise() * wave * 0.85),
-                prob: msg.p_30min as number,  // live probability from WS
+                time: msg.timestamp as string ?? new Date().toISOString(),
+                soft: (msg.soft_flux as number) ?? prev[prev.length - 1].soft,
+                hard: (msg.hard_flux as number) ?? prev[prev.length - 1].hard,
+                prob: msg.p_30min as number,
               };
               return [...prev.slice(-359), newPt];
             });
