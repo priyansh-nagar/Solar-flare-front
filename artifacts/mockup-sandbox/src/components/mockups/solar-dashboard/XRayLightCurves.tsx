@@ -243,18 +243,18 @@ export function XRayLightCurves({ series, flareEvents = [], probM30 = 0 }: Props
     series.length - 1,
   ]);
 
-  // Auto-advance the window when new points arrive, but only if the user is
-  // already watching the live edge (right handle within 5 pts of the end).
+  // Auto-advance the window when new points arrive.
+  // Also handles "big jumps" — when the series is seeded from HTTP data all at
+  // once (1 WS point → 360 HTTP points), snap the view back to the live edge.
   useEffect(() => {
     if (series.length === 0) return;
     const end = series.length - 1;
     setBrushRange((prev) => {
       const nearLive = prev[1] >= end - 5;
-      if (!nearLive) return prev; // user panned back — don't force-follow
-      const win = prev[1] - prev[0];
-      const newEnd = end;
-      const newStart = Math.max(0, newEnd - win);
-      return [newStart, newEnd];
+      const bigJump  = (end - prev[1]) > WINDOW; // seeding / replay batch
+      if (!nearLive && !bigJump) return prev;     // user panned back — leave alone
+      const win      = bigJump ? WINDOW : (prev[1] - prev[0]);
+      return [Math.max(0, end - win), end];
     });
   }, [series.length]);
 

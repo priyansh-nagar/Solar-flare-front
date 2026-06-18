@@ -225,11 +225,15 @@ export function Dashboard() {
   const [lastUp, setLastUp]   = useState<Date | null>(null);
   const [, setTick]       = useState(0);
   const [wsConnected, setWsConnected] = useState(false);
-  const [wsForecast, setWsForecast] = useState<{ p_15min: number; p_30min: number; p_extreme: number } | null>(null);
+  const [wsForecast, setWsForecast] = useState<{ p_15min: number; p_30min: number; p_extreme: number; inference_ms?: number } | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const [xraySeries, setXraySeries] = useState<XRayPoint[]>([]);
+  const [liveFlareEvents, setLiveFlareEvents] = useState<SolarApiResponse["flare_events"]>([]);
+  const [replayActive, setReplayActive] = useState(false);
+  const [replayProgress, setReplayProgress] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const xraySeededRef = useRef(false);
+  const flareEventsSeededRef = useRef(false);
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -239,10 +243,13 @@ export function Dashboard() {
     try {
       const r = await fetchSolarData();
       setData(r); setError(null); setLastUp(new Date());
-      // Seed the live series only once from the first HTTP response
       if (!xraySeededRef.current && r.xray_series.length > 0) {
         xraySeededRef.current = true;
         setXraySeries(r.xray_series);
+      }
+      if (!flareEventsSeededRef.current && r.flare_events.length > 0) {
+        flareEventsSeededRef.current = true;
+        setLiveFlareEvents(r.flare_events);
       }
     } catch (e) { setError(e instanceof Error ? e.message : "error"); }
     finally { setLoading(false); }
@@ -270,24 +277,56 @@ export function Dashboard() {
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data as string);
+
           if (msg.type === "forecast") {
-            setWsForecast({ p_15min: msg.p_15min, p_30min: msg.p_30min, p_extreme: msg.p_extreme });
-            // Append a live X-ray data point using server-authoritative flux values
+            setWsForecast({
+              p_15min: msg.p_15min, p_30min: msg.p_30min, p_extreme: msg.p_extreme,
+              inference_ms: msg.inference_ms,
+            });
             setXraySeries((prev) => {
-              if (prev.length === 0) return prev;
+              // On replay_start the series is cleared; allow building from zero
               const newPt: XRayPoint = {
-                time: msg.timestamp as string ?? new Date().toISOString(),
-                soft: (msg.soft_flux as number) ?? prev[prev.length - 1].soft,
-                hard: (msg.hard_flux as number) ?? prev[prev.length - 1].hard,
+                time: (msg.timestamp as string) ?? new Date().toISOString(),
+                soft: (msg.soft_flux as number) ?? (prev[prev.length - 1]?.soft ?? 2.3e-6),
+                hard: (msg.hard_flux as number) ?? (prev[prev.length - 1]?.hard ?? 8.1e-8),
                 prob: msg.p_30min as number,
               };
-              return [...prev.slice(-359), newPt];
+              return [...prev.slice(-479), newPt];
             });
+            if (msg.replay === true) {
+              const pct = Math.round(((msg.replay_idx as number) + 1) / (msg.replay_total as number) * 100);
+              setReplayProgress(pct);
+            }
+
+          } else if (msg.type === "replay_start") {
+            setReplayActive(true);
+            setReplayProgress(0);
+            setXraySeries([]); // clear so chart rebuilds from replay data
+
+          } else if (msg.type === "replay_end") {
+            setReplayActive(false);
+            setReplayProgress(100);
+            // Re-seed from HTTP data on next poll
+            xraySeededRef.current = false;
+
           } else if (msg.type === "alert") {
             const id = Date.now();
             const toast: ToastData = { id, born: id, ...msg };
             setToasts((prev) => [...prev.slice(-2), toast]);
             setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), TOAST_TTL);
+            // Add alert as a new entry in the live flare event log
+            setLiveFlareEvents((prev) => {
+              const newEv = {
+                id: `ws-${id}`,
+                time: (msg.timestamp as string) ?? new Date().toISOString(),
+                class: `${msg.flare_class as string}1.0`,
+                peak_flux: (msg.soft_flux as number) ?? 1.5e-5,
+                region: (msg.region as string) ?? "AR4081",
+                type: "forecast" as const,
+                confidence: Math.round((msg.p_30min as number) * 100) / 100,
+              };
+              return [newEv, ...prev].slice(0, 20); // keep latest 20
+            });
           }
         } catch { /* ignore */ }
       };
@@ -542,8 +581,8 @@ export function Dashboard() {
                   <div style={{ fontSize: 8, letterSpacing: "0.15em", color: C.textSec, textTransform: "uppercase", marginBottom: 2 }}>Telemetry</div>
                   {[
                     { k: "AR Count",  v: d.active_regions.length.toString() },
-                    { k: "Inference", v: d.health.inference_time_ms ? `${d.health.inference_time_ms}ms` : "—" },
-                    { k: "Model",     v: d.health.model_status ?? "—" },
+                    { k: "Inference", v: wsForecast?.inference_ms ? `${wsForecast.inference_ms}ms` : (d.health.inference_time_ms ? `${d.health.inference_time_ms}ms` : "—") },
+                    { k: "Model",     v: d.health.model_status?.toUpperCase() ?? "—" },
                   ].map(({ k, v }) => (
                     <div key={k} style={{ fontSize: 8, fontFamily: "monospace" }}>
                       <span style={{ color: C.textDim }}>{k} </span>
@@ -557,9 +596,37 @@ export function Dashboard() {
 
           {/* X-ray light curves */}
           <Panel topAccent={C.blue} className="flex-1 min-h-0">
-            <PanelHeader label="X-ray Light Curves · Nowcasting Trigger" right="6h · GOES-16 · drag navigator to scroll" />
+            <div className="flex items-center justify-between flex-shrink-0" style={{ background: "#0A1218", borderBottom: `1px solid ${C.border}`, padding: "6px 14px" }}>
+              <span style={{ fontSize: 9, letterSpacing: "0.2em", color: C.textSec, textTransform: "uppercase", fontFamily: "monospace" }}>
+                X-ray Light Curves · Nowcasting Trigger
+              </span>
+              <div className="flex items-center gap-3">
+                {replayActive && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 8, fontFamily: "monospace" }}>
+                    <span style={{ color: C.amber, letterSpacing: "0.1em" }}>REPLAY {replayProgress}%</span>
+                    <div style={{ width: 60, height: 2, background: C.border }}>
+                      <div style={{ height: "100%", width: `${replayProgress}%`, background: C.amber, transition: "width 0.15s linear" }} />
+                    </div>
+                  </div>
+                )}
+                <button
+                  onClick={() => { if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "replay_start" })); }}
+                  disabled={replayActive || !wsConnected}
+                  style={{
+                    background: "none", border: `1px solid ${replayActive || !wsConnected ? C.border : C.amber}`,
+                    color: replayActive || !wsConnected ? C.textDim : C.amber,
+                    fontFamily: "monospace", fontSize: 8, letterSpacing: "0.12em",
+                    padding: "2px 8px", borderRadius: 2, cursor: replayActive || !wsConnected ? "not-allowed" : "pointer",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {replayActive ? "▶ PLAYING…" : "▶ REPLAY"}
+                </button>
+                <span style={{ fontSize: 8, color: C.textDim, fontFamily: "monospace", letterSpacing: "0.1em" }}>6h · GOES-16 · drag navigator to scroll</span>
+              </div>
+            </div>
             <div className="flex-1 min-h-0">
-              {d.xray_series.length > 0
+              {(xraySeries.length > 0 || d.xray_series.length > 0)
                 ? <XRayLightCurves series={xraySeries.length > 0 ? xraySeries : d.xray_series} flareEvents={flareAnno} probM30={(wsForecast ?? d).p_30min} />
                 : (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 9, fontFamily: "monospace", color: C.textDim }}>
@@ -572,12 +639,12 @@ export function Dashboard() {
 
           {/* Flare event log */}
           <Panel topAccent={C.cyan} style={{ flexShrink: 0, height: 172 }}>
-            <PanelHeader label="Flare Event Database" right={`${d.flare_events.length} EVENTS · NOWCAST + FORECAST`} />
+            <PanelHeader label="Flare Event Database" right={`${liveFlareEvents.length} EVENTS · NOWCAST + FORECAST`} />
             <div
               className="flex-1 min-h-0 overflow-y-auto"
               style={{ scrollbarWidth: "thin", scrollbarColor: `${C.border} transparent` }}
             >
-              <FlareEventLog events={d.flare_events} />
+              <FlareEventLog events={liveFlareEvents} />
             </div>
           </Panel>
         </div>
