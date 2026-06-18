@@ -3,6 +3,7 @@ import { SunVisualization } from "./SunVisualization";
 import { XRayLightCurves } from "./XRayLightCurves";
 import { FlareEventLog } from "./FlareEventLog";
 import { StatusBar } from "./StatusBar";
+import { HistoricalTimeline } from "./HistoricalTimeline";
 import { fetchSolarData } from "./api";
 import type { SolarApiResponse, XRayPoint } from "./api";
 import { format } from "date-fns";
@@ -654,12 +655,27 @@ export function Dashboard() {
             </div>
             <div className="flex-1 min-h-0">
               {(() => {
-                const activeSeries = xraySeries.length >= 30 ? xraySeries : d.xray_series.length >= 30 ? d.xray_series : null;
+                // During replay: only show replay (WS) data — never fall back to
+                // the static HTTP seed, which would cause a jarring source-switch
+                // and brush-range corruption mid-replay.
+                const activeSeries = replayActive
+                  ? (xraySeries.length > 0 ? xraySeries : null)
+                  : (xraySeries.length >= 30 ? xraySeries : d.xray_series.length >= 30 ? d.xray_series : null);
+
                 return activeSeries
-                  ? <XRayLightCurves series={activeSeries} flareEvents={flareAnno} probM30={(wsForecast ?? d).p_30min} />
+                  ? (
+                    <XRayLightCurves
+                      key={replayActive ? "replay" : "live"}
+                      series={activeSeries}
+                      flareEvents={flareAnno}
+                      probM30={(wsForecast ?? d).p_30min}
+                      replayActive={replayActive}
+                      replayProgress={replayProgress}
+                    />
+                  )
                   : (
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 9, fontFamily: "monospace", color: C.textDim }}>
-                      AWAITING DATA STREAM…
+                      {replayActive ? "LOADING REPLAY DATA…" : "AWAITING DATA STREAM…"}
                     </div>
                   );
               })()}
@@ -667,7 +683,7 @@ export function Dashboard() {
           </Panel>
 
           {/* Flare event log */}
-          <Panel topAccent={C.cyan} style={{ flexShrink: 0, height: 172 }}>
+          <Panel topAccent={C.cyan} style={{ flexShrink: 0, height: 140 }}>
             <PanelHeader label="Flare Event Database" right={`${liveFlareEvents.length} EVENTS · NOWCAST + FORECAST`} />
             <div
               className="flex-1 min-h-0 overflow-y-auto"
@@ -676,6 +692,34 @@ export function Dashboard() {
               <FlareEventLog events={liveFlareEvents} />
             </div>
           </Panel>
+        </div>
+      </div>
+
+      {/* ── HISTORICAL ACTIVITY TIMELINE ─────────────────────────────────── */}
+      <div style={{ flexShrink: 0, margin: "0 8px 8px", background: C.panel, border: `1px solid ${C.border}`, borderTop: `2px solid #2A5A8A`, borderRadius: 2 }}>
+        <div className="flex items-center justify-between flex-shrink-0" style={{ background: "#0A1218", borderBottom: `1px solid ${C.border}`, padding: "6px 14px" }}>
+          <span style={{ fontSize: 9, letterSpacing: "0.2em", color: C.textSec, textTransform: "uppercase", fontFamily: "monospace" }}>
+            Historical Solar Activity · 24h Severity Heatmap
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {replayActive && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 8, fontFamily: "monospace" }}>
+                <span style={{ color: "#FFB800", letterSpacing: "0.1em" }}>▶ REPLAY POSITION</span>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#FFB800", boxShadow: "0 0 6px #FFB800", animation: "blink-led 0.8s infinite" }} />
+              </div>
+            )}
+            <span style={{ fontSize: 8, color: C.textDim, fontFamily: "monospace", letterSpacing: "0.08em" }}>
+              HOVER FOR DETAILS · 10-MIN RESOLUTION · LAST 8H IN REPLAY ZONE
+            </span>
+          </div>
+        </div>
+        <div style={{ padding: "8px 14px 8px" }}>
+          <HistoricalTimeline
+            flareEvents={liveFlareEvents}
+            xraySeries={xraySeries}
+            replayActive={replayActive}
+            replayProgress={replayProgress}
+          />
         </div>
       </div>
 

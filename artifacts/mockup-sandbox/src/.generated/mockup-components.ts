@@ -6,6 +6,7 @@ export const modules: ModuleMap = {
   "./components/mockups/solar-dashboard/FlareEventLog.tsx": () => import("../components/mockups/solar-dashboard/FlareEventLog.tsx"),
   "./components/mockups/solar-dashboard/ForecastChart.tsx": () => import("../components/mockups/solar-dashboard/ForecastChart.tsx"),
   "./components/mockups/solar-dashboard/ForecastPanel.tsx": () => import("../components/mockups/solar-dashboard/ForecastPanel.tsx"),
+  "./components/mockups/solar-dashboard/HistoricalTimeline.tsx": () => import("../components/mockups/solar-dashboard/HistoricalTimeline.tsx"),
   "./components/mockups/solar-dashboard/NowcastPanel.tsx": () => import("../components/mockups/solar-dashboard/NowcastPanel.tsx"),
   "./components/mockups/solar-dashboard/StatusBar.tsx": () => import("../components/mockups/solar-dashboard/StatusBar.tsx"),
   "./components/mockups/solar-dashboard/SunVisualization.tsx": () => import("../components/mockups/solar-dashboard/SunVisualization.tsx"),

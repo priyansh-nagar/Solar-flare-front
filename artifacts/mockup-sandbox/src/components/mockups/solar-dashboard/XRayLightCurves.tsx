@@ -9,14 +9,15 @@ export interface XRayPoint {
   time: string;
   soft: number;
   hard: number;
-  prob?: number; // P(M+ 30min) in 0–1, stored per point
-  label?: string;
+  prob?: number;
 }
 
 interface Props {
   series: XRayPoint[];
   flareEvents?: { time: string; class: string; label: string }[];
-  probM30?: number; // fallback for points without a stored prob
+  probM30?: number;
+  replayActive?: boolean;
+  replayProgress?: number;
 }
 
 const GOES_THRESHOLDS = [
@@ -64,10 +65,14 @@ function NavigatorMinimap({
   data,
   range,
   onChange,
+  replayActive,
+  replayProgress,
 }: {
   data: { soft: number }[];
   range: [number, number];
   onChange: (r: [number, number]) => void;
+  replayActive?: boolean;
+  replayProgress?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<null | {
@@ -95,6 +100,11 @@ function NavigatorMinimap({
   const points = data
     .map((d, i) => `${pctOf(i).toFixed(2)},${normY(d.soft).toFixed(2)}`)
     .join(" ");
+
+  /* replay cursor pct inside minimap */
+  const replayCursorPct = replayActive && replayProgress != null
+    ? `${replayProgress.toFixed(1)}`
+    : null;
 
   /* ── drag logic ── */
   const startDrag = (e: React.MouseEvent, mode: "pan" | "L" | "R") => {
@@ -155,14 +165,12 @@ function NavigatorMinimap({
           />
         )}
         {n > 1 && (
-          <>
-            <polyline
-              points={`0,${H} ${points} 100,${H}`}
-              fill="#4DAAFF"
-              fillOpacity="0.06"
-              stroke="none"
-            />
-          </>
+          <polyline
+            points={`0,${H} ${points} 100,${H}`}
+            fill="#4DAAFF"
+            fillOpacity="0.06"
+            stroke="none"
+          />
         )}
         {/* dim masks outside window */}
         <rect x={0} y={0} width={leftPct} height={H} fill="rgba(0,0,0,0.55)" />
@@ -177,6 +185,18 @@ function NavigatorMinimap({
           stroke="#2A4158"
           strokeWidth="0.8"
         />
+        {/* replay cursor */}
+        {replayCursorPct != null && (
+          <line
+            x1={replayCursorPct}
+            y1={0}
+            x2={replayCursorPct}
+            y2={H}
+            stroke="#FFB800"
+            strokeWidth="1"
+            strokeOpacity="0.9"
+          />
+        )}
       </svg>
 
       {/* Invisible overlay for pan drag (window body) */}
@@ -235,26 +255,34 @@ function NavigatorMinimap({
 }
 
 /* ── main component ──────────────────────────────────────────────────────── */
-export function XRayLightCurves({ series, flareEvents = [], probM30 = 0 }: Props) {
-  const WINDOW = 60; // visible points (~60 min at 1-min cadence, or ~3 min at 3-s WS cadence)
+export function XRayLightCurves({ series, flareEvents = [], probM30 = 0, replayActive = false, replayProgress = 0 }: Props) {
+  const WINDOW = 60;
 
-  const [brushRange, setBrushRange] = useState<[number, number]>(() => [
-    Math.max(0, series.length - WINDOW),
-    series.length - 1,
-  ]);
+  const [brushRange, setBrushRange] = useState<[number, number]>(() => {
+    const end = Math.max(0, series.length - 1);
+    return [Math.max(0, end - WINDOW), end];
+  });
 
   // Auto-advance the window when new points arrive.
-  // Also handles "big jumps" — when the series is seeded from HTTP data all at
-  // once (1 WS point → 360 HTTP points), snap the view back to the live edge.
+  // Handles three cases:
+  //   1. nearLive — user is at the tail, advance with new data
+  //   2. bigJump — large batch of data (seed / replay start), snap to tail
+  //   3. seriesShrunk — series became shorter (source switch: HTTP→WS or replay clear), snap to tail
   useEffect(() => {
-    if (series.length === 0) return;
+    if (series.length === 0) {
+      setBrushRange([0, 0]);
+      return;
+    }
     const end = series.length - 1;
     setBrushRange((prev) => {
-      const nearLive = prev[1] >= end - 5;
-      const bigJump  = (end - prev[1]) > WINDOW; // seeding / replay batch
-      if (!nearLive && !bigJump) return prev;     // user panned back — leave alone
-      const win      = bigJump ? WINDOW : (prev[1] - prev[0]);
-      return [Math.max(0, end - win), end];
+      const seriesShrunk = prev[1] > end + 3;           // series got shorter → new source
+      const nearLive     = prev[1] >= end - 5;          // at the live edge
+      const bigJump      = (end - prev[1]) > WINDOW;    // large batch arrived
+
+      if (!nearLive && !bigJump && !seriesShrunk) return prev; // user panned back — leave alone
+
+      const winSize = (bigJump || seriesShrunk) ? WINDOW : (prev[1] - prev[0]);
+      return [Math.max(0, end - winSize), end];
     });
   }, [series.length]);
 
@@ -262,11 +290,14 @@ export function XRayLightCurves({ series, flareEvents = [], probM30 = 0 }: Props
     time: d.time,
     soft: logScale(d.soft),
     hard: logScale(d.hard),
-    // Use the per-point stored prob; fall back to the live scalar only if absent
     prob: d.prob !== undefined ? d.prob * 100 : (probM30 ?? 0) * 100,
   }));
 
-  const visible = processed.slice(brushRange[0], brushRange[1] + 1);
+  // Guard: clamp brush range to valid indices
+  const safeEnd   = Math.max(0, series.length - 1);
+  const safeStart = Math.min(brushRange[0], safeEnd);
+  const safeRight = Math.min(brushRange[1], safeEnd);
+  const visible   = processed.slice(safeStart, safeRight + 1);
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -282,6 +313,12 @@ export function XRayLightCurves({ series, flareEvents = [], probM30 = 0 }: Props
             <span style={{ color: "#5B7A8A", letterSpacing: "0.1em", textTransform: "uppercase" }}>{label}</span>
           </div>
         ))}
+        {replayActive && (
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 8, height: 2, background: "#FFB800" }} />
+            <span style={{ color: "#FFB800", letterSpacing: "0.1em" }}>REPLAY CURSOR</span>
+          </div>
+        )}
       </div>
 
       {/* Merged chart */}
@@ -396,8 +433,10 @@ export function XRayLightCurves({ series, flareEvents = [], probM30 = 0 }: Props
         </div>
         <NavigatorMinimap
           data={processed}
-          range={brushRange}
+          range={[safeStart, safeRight]}
           onChange={setBrushRange}
+          replayActive={replayActive}
+          replayProgress={replayProgress}
         />
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 7, fontFamily: "monospace", color: "#2E4558", marginTop: 3, padding: "0 2px" }}>
           <span>← SCROLL BACKWARD</span>
