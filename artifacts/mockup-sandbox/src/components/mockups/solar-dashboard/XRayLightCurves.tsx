@@ -1,9 +1,9 @@
 import {
-  ComposedChart, AreaChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ReferenceLine, ResponsiveContainer, Brush, Area,
+  ComposedChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, ReferenceLine, ResponsiveContainer, Area,
 } from "recharts";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 export interface XRayPoint {
   time: string;
@@ -58,8 +58,184 @@ function CustomTooltip({ active, payload, label }: any) {
   );
 }
 
+/* ── Custom drag navigator ───────────────────────────────────────────────── */
+function NavigatorMinimap({
+  data,
+  range,
+  onChange,
+}: {
+  data: { soft: number }[];
+  range: [number, number];
+  onChange: (r: [number, number]) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<null | {
+    mode: "pan" | "L" | "R";
+    x0: number;
+    r0: [number, number];
+  }>(null);
+
+  const n = data.length;
+  const H = 38;
+
+  const pctOf = (i: number) => (i / Math.max(n - 1, 1)) * 100;
+  const leftPct  = pctOf(range[0]);
+  const rightPct = pctOf(range[1]);
+  const winPct   = rightPct - leftPct;
+
+  /* ── build SVG polyline ── */
+  const vals = data.map((d) => d.soft);
+  const mn = Math.min(...vals);
+  const mx = Math.max(...vals);
+  const pad = 2;
+  const normY = (v: number) =>
+    mx === mn ? H / 2 : pad + ((1 - (v - mn) / (mx - mn)) * (H - pad * 2));
+
+  const points = data
+    .map((d, i) => `${pctOf(i).toFixed(2)},${normY(d.soft).toFixed(2)}`)
+    .join(" ");
+
+  /* ── drag logic ── */
+  const startDrag = (e: React.MouseEvent, mode: "pan" | "L" | "R") => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragRef.current = { mode, x0: e.clientX, r0: [range[0], range[1]] };
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const { mode, x0, r0 } = dragRef.current;
+      const w = containerRef.current?.offsetWidth ?? 1;
+      const dIdx = Math.round(((ev.clientX - x0) / w) * (n - 1));
+      const ws = r0[1] - r0[0];
+      let nr: [number, number];
+      if (mode === "pan") {
+        const s = Math.max(0, Math.min(n - 1 - ws, r0[0] + dIdx));
+        nr = [s, s + ws];
+      } else if (mode === "L") {
+        const s = Math.max(0, Math.min(r0[1] - 5, r0[0] + dIdx));
+        nr = [s, r0[1]];
+      } else {
+        const end = Math.min(n - 1, Math.max(r0[0] + 5, r0[1] + dIdx));
+        nr = [r0[0], end];
+      }
+      onChange(nr);
+    };
+
+    const onUp = () => {
+      dragRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      style={{ position: "relative", width: "100%", height: H, userSelect: "none", overflow: "hidden" }}
+    >
+      {/* SVG background line */}
+      <svg
+        width="100%"
+        height={H}
+        viewBox={`0 0 100 ${H}`}
+        preserveAspectRatio="none"
+        style={{ position: "absolute", inset: 0, display: "block" }}
+      >
+        <rect width="100" height={H} fill="#090E14" />
+        {n > 1 && (
+          <polyline
+            points={points}
+            fill="none"
+            stroke="#1E3A5A"
+            strokeWidth="0.6"
+          />
+        )}
+        {n > 1 && (
+          <>
+            <polyline
+              points={`0,${H} ${points} 100,${H}`}
+              fill="#4DAAFF"
+              fillOpacity="0.06"
+              stroke="none"
+            />
+          </>
+        )}
+        {/* dim masks outside window */}
+        <rect x={0} y={0} width={leftPct} height={H} fill="rgba(0,0,0,0.55)" />
+        <rect x={rightPct} y={0} width={100 - rightPct} height={H} fill="rgba(0,0,0,0.55)" />
+        {/* window border */}
+        <rect
+          x={leftPct + 0.3}
+          y={0.5}
+          width={Math.max(0, winPct - 0.6)}
+          height={H - 1}
+          fill="none"
+          stroke="#2A4158"
+          strokeWidth="0.8"
+        />
+      </svg>
+
+      {/* Invisible overlay for pan drag (window body) */}
+      <div
+        onMouseDown={(e) => startDrag(e, "pan")}
+        style={{
+          position: "absolute",
+          left: `${leftPct}%`,
+          width: `${winPct}%`,
+          top: 0,
+          height: "100%",
+          cursor: "grab",
+        }}
+      />
+
+      {/* Left resize handle */}
+      <div
+        onMouseDown={(e) => startDrag(e, "L")}
+        style={{
+          position: "absolute",
+          left: `${leftPct}%`,
+          top: 0,
+          width: 8,
+          height: "100%",
+          cursor: "w-resize",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 2,
+        }}
+      >
+        <div style={{ width: 2, height: 12, background: "#4DAAFF", opacity: 0.7, borderRadius: 1 }} />
+      </div>
+
+      {/* Right resize handle */}
+      <div
+        onMouseDown={(e) => startDrag(e, "R")}
+        style={{
+          position: "absolute",
+          left: `${rightPct}%`,
+          transform: "translateX(-100%)",
+          top: 0,
+          width: 8,
+          height: "100%",
+          cursor: "e-resize",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 2,
+        }}
+      >
+        <div style={{ width: 2, height: 12, background: "#4DAAFF", opacity: 0.7, borderRadius: 1 }} />
+      </div>
+    </div>
+  );
+}
+
+/* ── main component ──────────────────────────────────────────────────────── */
 export function XRayLightCurves({ series, flareEvents = [], probM30 = 0 }: Props) {
-  const [brushRange, setBrushRange] = useState<[number, number]>([
+  const [brushRange, setBrushRange] = useState<[number, number]>(() => [
     Math.max(0, series.length - 60),
     series.length - 1,
   ]);
@@ -199,39 +375,12 @@ export function XRayLightCurves({ series, flareEvents = [], probM30 = 0 }: Props
         <div style={{ fontSize: 8, letterSpacing: "0.15em", color: "#2E4558", textTransform: "uppercase", fontFamily: "monospace", marginBottom: 4 }}>
           Timeline Navigator — Drag to Scroll
         </div>
-        <ResponsiveContainer width="100%" height={52}>
-          <AreaChart data={processed} margin={{ top: 2, right: 48, bottom: 0, left: 4 }}>
-            <XAxis dataKey="time" hide />
-            <YAxis hide domain={[-9, -3]} />
-            <Area
-              type="monotone"
-              dataKey="soft"
-              stroke="#4DAAFF"
-              strokeWidth={1}
-              fill="#4DAAFF"
-              fillOpacity={0.12}
-              dot={false}
-              isAnimationActive={false}
-            />
-            <Brush
-              dataKey="time"
-              height={36}
-              y={8}
-              stroke="#2A4158"
-              fill="#0C1219"
-              fillOpacity={0.85}
-              travellerWidth={6}
-              startIndex={brushRange[0]}
-              endIndex={brushRange[1]}
-              onChange={(e: any) => {
-                if (e.startIndex !== undefined && e.endIndex !== undefined) {
-                  setBrushRange([e.startIndex, e.endIndex]);
-                }
-              }}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 7, fontFamily: "monospace", color: "#2E4558", marginTop: 2, padding: "0 4px" }}>
+        <NavigatorMinimap
+          data={processed}
+          range={brushRange}
+          onChange={setBrushRange}
+        />
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 7, fontFamily: "monospace", color: "#2E4558", marginTop: 3, padding: "0 2px" }}>
           <span>← SCROLL BACKWARD</span>
           <span>DRAG HANDLES TO ZOOM · DRAG WINDOW TO PAN</span>
           <span>SCROLL FORWARD →</span>

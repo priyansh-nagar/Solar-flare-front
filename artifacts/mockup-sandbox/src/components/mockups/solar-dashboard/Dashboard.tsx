@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { SunVisualization } from "./SunVisualization";
 import { XRayLightCurves } from "./XRayLightCurves";
 import { FlareEventLog } from "./FlareEventLog";
@@ -109,6 +109,9 @@ const EMPTY: SolarApiResponse = {
   flare_events: [],
   confidence: 0,
   lead_time_peak: 0,
+  p_15min: 0.30,
+  p_30min: 0.19,
+  p_extreme: 0.05,
 };
 
 /* ── main component ─────────────────────────────────────────────────────────── */
@@ -118,6 +121,9 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [lastUp, setLastUp]   = useState<Date | null>(null);
   const [, setTick]       = useState(0);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [wsForecast, setWsForecast] = useState<{ p_15min: number; p_30min: number; p_extreme: number } | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -129,6 +135,39 @@ export function Dashboard() {
 
   useEffect(() => { load(); const id = setInterval(load, POLL); return () => clearInterval(id); }, [load]);
   useEffect(() => { const id = setInterval(() => setTick(n => n + 1), 1000); return () => clearInterval(id); }, []);
+
+  useEffect(() => {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const url = `${proto}//${window.location.host}/api/ws`;
+    let ws: WebSocket;
+    let retryTimer: ReturnType<typeof setTimeout>;
+
+    function connect() {
+      ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onopen  = () => setWsConnected(true);
+      ws.onclose = () => {
+        setWsConnected(false);
+        retryTimer = setTimeout(connect, 5000);
+      };
+      ws.onerror = () => ws.close();
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data as string);
+          if (msg.type === "forecast") {
+            setWsForecast({ p_15min: msg.p_15min, p_30min: msg.p_30min, p_extreme: msg.p_extreme });
+          }
+        } catch { /* ignore */ }
+      };
+    }
+
+    connect();
+    return () => {
+      clearTimeout(retryTimer);
+      ws?.close();
+    };
+  }, []);
 
   const d = data ?? EMPTY;
   const lastPt   = d.xray_series[d.xray_series.length - 1];
@@ -214,6 +253,12 @@ export function Dashboard() {
           <span>GOES-16 XRSB 1–8Å</span>
           <span>GOES-16 XRSA 0.5–4Å</span>
           <div style={{ width: 1, height: 14, background: C.border }} />
+          <div className="flex items-center gap-1.5">
+            <LED color={wsConnected ? C.green : C.amber} blink={!wsConnected} />
+            <span style={{ color: wsConnected ? C.green : C.amber, letterSpacing: "0.1em" }}>
+              {wsConnected ? "WS LIVE" : "WS OFFLINE"}
+            </span>
+          </div>
           <div className="flex items-center gap-1.5">
             <LED color={C.green} />
             <span style={{ color: C.green, letterSpacing: "0.1em" }}>LIVE {utcNow} UTC</span>
@@ -330,9 +375,9 @@ export function Dashboard() {
                 <div key="fcst" style={{ padding: "10px 20px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 6, borderLeft: `1px solid ${C.border}` }}>
                   <div style={{ fontSize: 8, letterSpacing: "0.15em", color: C.textSec, textTransform: "uppercase", marginBottom: 2 }}>Predictive Forecast</div>
                   {[
-                    { label: "M-CLASS (30min)", val: d.p_30min, color: C.amber },
-                    { label: "X-CLASS (30min)", val: d.p_extreme, color: C.red },
-                    { label: "ALL CLEAR (15min)", val: 1 - d.p_15min, color: C.green },
+                    { label: "M-CLASS (30min)", val: (wsForecast ?? d).p_30min, color: C.amber },
+                    { label: "X-CLASS (30min)", val: (wsForecast ?? d).p_extreme, color: C.red },
+                    { label: "ALL CLEAR (15min)", val: 1 - (wsForecast ?? d).p_15min, color: C.green },
                   ].map(({ label, val, color }) => (
                     <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 8, fontFamily: "monospace" }}>
                       <span style={{ color: C.textDim, minWidth: 112 }}>{label}</span>
