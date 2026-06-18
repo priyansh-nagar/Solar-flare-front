@@ -8,6 +8,109 @@ import type { SolarApiResponse } from "./api";
 import { format } from "date-fns";
 
 const POLL = 30_000;
+const TOAST_TTL = 8_000;
+
+/* ── Alert toast ──────────────────────────────────────────────────────────── */
+interface ToastData {
+  id: number;
+  timestamp: string;
+  flare_class: string;
+  p_30min: number;
+  p_extreme: number;
+  threshold: number;
+  region: string;
+  message: string;
+  born: number;
+}
+
+function FlareToast({ toast, onClose }: { toast: ToastData; onClose: () => void }) {
+  const [progress, setProgress] = useState(100);
+
+  useEffect(() => {
+    const start = Date.now();
+    const frame = () => {
+      const elapsed = Date.now() - start;
+      const pct = Math.max(0, 100 - (elapsed / TOAST_TTL) * 100);
+      setProgress(pct);
+      if (pct > 0) requestAnimationFrame(frame);
+    };
+    const raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const isX = toast.flare_class === "X";
+  const accent = isX ? "#FF3B3B" : "#FF8C00";
+
+  return (
+    <div
+      style={{
+        width: 300,
+        background: "#070C10",
+        border: `1px solid ${accent}`,
+        borderLeft: `3px solid ${accent}`,
+        borderRadius: 2,
+        overflow: "hidden",
+        boxShadow: `0 0 24px ${accent}33, 0 4px 16px rgba(0,0,0,0.8)`,
+        fontFamily: "monospace",
+        animation: "toast-in 0.22s ease",
+      }}
+    >
+      <style>{`
+        @keyframes toast-in { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:translateX(0); } }
+      `}</style>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px 6px", borderBottom: `1px solid ${accent}33` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <span style={{
+            display: "inline-block", width: 7, height: 7, borderRadius: "50%",
+            background: accent, boxShadow: `0 0 6px ${accent}`,
+            animation: "blink-led 0.6s infinite",
+          }} />
+          <span style={{ fontSize: 9, letterSpacing: "0.2em", color: accent, textTransform: "uppercase", fontWeight: "bold" }}>
+            ⚠ FLARE ALERT
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#2E4558", fontSize: 12, lineHeight: 1, padding: 2 }}
+        >✕</button>
+      </div>
+
+      {/* Body */}
+      <div style={{ padding: "8px 10px 6px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+          <span style={{ fontSize: 36, fontWeight: "bold", color: accent, lineHeight: 1 }}>
+            {toast.flare_class}
+          </span>
+          <div>
+            <div style={{ fontSize: 9, color: "#C8D8E8", letterSpacing: "0.1em" }}>CLASS PROBABILITY</div>
+            <div style={{ fontSize: 18, fontWeight: "bold", color: accent }}>{Math.round(toast.p_30min * 100)}%</div>
+          </div>
+          <div style={{ marginLeft: "auto", textAlign: "right" }}>
+            <div style={{ fontSize: 8, color: "#2E4558", letterSpacing: "0.08em" }}>REGION</div>
+            <div style={{ fontSize: 11, color: "#5B7A8A", fontWeight: "bold" }}>{toast.region}</div>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 8, color: "#5B7A8A", lineHeight: 1.6, marginBottom: 6, letterSpacing: "0.05em" }}>
+          {toast.message}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 7, color: "#2E4558" }}>
+          <span>THRESHOLD {Math.round(toast.threshold * 100)}%</span>
+          <span>X-CLASS {Math.round(toast.p_extreme * 100)}%</span>
+          <span>{toast.timestamp.slice(11, 19)} UTC</span>
+        </div>
+      </div>
+
+      {/* Countdown bar */}
+      <div style={{ height: 2, background: "#0C1219" }}>
+        <div style={{ height: "100%", width: `${progress}%`, background: accent, opacity: 0.7, transition: "none" }} />
+      </div>
+    </div>
+  );
+}
 
 /* ── colour constants ──────────────────────────────────────────────────────── */
 const C = {
@@ -123,7 +226,12 @@ export function Dashboard() {
   const [, setTick]       = useState(0);
   const [wsConnected, setWsConnected] = useState(false);
   const [wsForecast, setWsForecast] = useState<{ p_15min: number; p_30min: number; p_extreme: number } | null>(null);
+  const [toasts, setToasts] = useState<ToastData[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -157,6 +265,11 @@ export function Dashboard() {
           const msg = JSON.parse(ev.data as string);
           if (msg.type === "forecast") {
             setWsForecast({ p_15min: msg.p_15min, p_30min: msg.p_30min, p_extreme: msg.p_extreme });
+          } else if (msg.type === "alert") {
+            const id = Date.now();
+            const toast: ToastData = { id, born: id, ...msg };
+            setToasts((prev) => [...prev.slice(-2), toast]);
+            setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), TOAST_TTL);
           }
         } catch { /* ignore */ }
       };
@@ -202,6 +315,21 @@ export function Dashboard() {
           backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px)",
         }}
       />
+
+      {/* ── Toast alert stack ────────────────────────────────────────────── */}
+      {toasts.length > 0 && (
+        <div
+          style={{
+            position: "fixed", top: 52, right: 16, zIndex: 9000,
+            display: "flex", flexDirection: "column", gap: 8,
+            pointerEvents: "auto",
+          }}
+        >
+          {toasts.map((t) => (
+            <FlareToast key={t.id} toast={t} onClose={() => dismissToast(t.id)} />
+          ))}
+        </div>
+      )}
 
       {/* ── blink keyframe injection ──────────────────────────────────────── */}
       <style>{`

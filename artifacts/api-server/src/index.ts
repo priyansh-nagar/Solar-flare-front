@@ -4,54 +4,72 @@ import app from "./app";
 import { logger } from "./lib/logger";
 
 const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error("PORT environment variable is required but was not provided.");
-}
-
+if (!rawPort) throw new Error("PORT environment variable is required but was not provided.");
 const port = Number(rawPort);
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
+if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT value: "${rawPort}"`);
+
+const ALERT_THRESHOLD = 0.60;
 
 const server = http.createServer(app);
-
 const wss = new WebSocketServer({ server, path: "/api/ws" });
 
-function makeBroadcast() {
+function makeForecast(spike = false) {
   const p_15min   = parseFloat((0.26 + Math.random() * 0.10).toFixed(4));
-  const p_30min   = parseFloat((0.15 + Math.random() * 0.10).toFixed(4));
-  const p_extreme = parseFloat((0.02 + Math.random() * 0.05).toFixed(4));
-  return JSON.stringify({
-    type: "forecast",
-    timestamp: new Date().toISOString(),
-    p_15min,
-    p_30min,
-    p_extreme,
-    model_version: "v2.1",
-  });
+  const p_30min   = spike
+    ? parseFloat((0.65 + Math.random() * 0.28).toFixed(4))
+    : parseFloat((0.15 + Math.random() * 0.10).toFixed(4));
+  const p_extreme = spike
+    ? parseFloat((0.18 + Math.random() * 0.20).toFixed(4))
+    : parseFloat((0.02 + Math.random() * 0.05).toFixed(4));
+  return { p_15min, p_30min, p_extreme };
 }
 
 wss.on("connection", (ws) => {
   logger.info("WebSocket client connected");
-  ws.send(makeBroadcast());
 
-  const interval = setInterval(() => {
-    if (ws.readyState === ws.OPEN) {
-      ws.send(makeBroadcast());
+  let tickCount = 0;
+
+  function broadcast() {
+    if (ws.readyState !== ws.OPEN) return;
+
+    tickCount++;
+    // Spike on tick 1 (immediate demo) then every 3rd tick (≈9 s)
+    const spike = tickCount === 1 || tickCount % 3 === 0;
+    const { p_15min, p_30min, p_extreme } = makeForecast(spike);
+    const timestamp = new Date().toISOString();
+
+    ws.send(JSON.stringify({
+      type: "forecast",
+      timestamp,
+      p_15min,
+      p_30min,
+      p_extreme,
+      model_version: "v2.1",
+    }));
+
+    if (p_30min >= ALERT_THRESHOLD) {
+      const flareClass = p_extreme >= 0.30 ? "X" : "M";
+      ws.send(JSON.stringify({
+        type: "alert",
+        timestamp,
+        flare_class: flareClass,
+        p_30min,
+        p_extreme,
+        threshold: ALERT_THRESHOLD,
+        region: "AR4081",
+        message: `${flareClass}-CLASS flare probability ${Math.round(p_30min * 100)}% exceeds FAR threshold`,
+      }));
+      logger.warn({ p_30min, flare_class: flareClass }, "Alert threshold crossed — broadcasting alert");
     }
-  }, 3000);
+  }
 
-  ws.on("close", () => {
-    clearInterval(interval);
-    logger.info("WebSocket client disconnected");
-  });
-  ws.on("error", (err) => {
-    clearInterval(interval);
-    logger.error({ err }, "WebSocket error");
-  });
+  broadcast();
+  const interval = setInterval(broadcast, 3000);
+
+  ws.on("close", () => { clearInterval(interval); logger.info("WebSocket client disconnected"); });
+  ws.on("error", (err) => { clearInterval(interval); logger.error({ err }, "WebSocket error"); });
 });
 
 server.listen(port, () => {
-  logger.info({ port }, "Server listening (HTTP + WebSocket)");
+  logger.info({ port, alert_threshold: ALERT_THRESHOLD }, "Server listening (HTTP + WebSocket)");
 });
