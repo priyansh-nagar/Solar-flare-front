@@ -304,14 +304,16 @@ export function Dashboard() {
   }, []);
 
   const d = data ?? EMPTY;
-  const lastPt   = d.xray_series[d.xray_series.length - 1];
+  // Prefer the live WS-driven series for hero metrics; fall back to HTTP data
+  const liveSeries = xraySeries.length > 0 ? xraySeries : d.xray_series;
+  const lastPt   = liveSeries[liveSeries.length - 1];
   const softFlux = lastPt?.soft ?? 0;
   const hardFlux = lastPt?.hard ?? 0;
   const alert    = alertLevel(softFlux);
   const nowcastAlert = alert.state === "warning" || alert.state === "alert";
   const { cls: softCls, color: softColor } = classifyFlux(softFlux);
   const { cls: hardCls }                   = classifyFlux(hardFlux);
-  const prev  = d.xray_series[d.xray_series.length - 6];
+  const prev  = liveSeries[liveSeries.length - 6];
   const trend = prev && softFlux > prev.soft * 1.4 ? "▲ RISING"
               : prev && softFlux < prev.soft * 0.7 ? "▼ FALLING" : "● STABLE";
   const trendColor = trend.startsWith("▲") ? C.amber : trend.startsWith("▼") ? C.blue : C.textSec;
