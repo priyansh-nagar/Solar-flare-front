@@ -232,8 +232,9 @@ export function Dashboard() {
   const [replayActive, setReplayActive] = useState(false);
   const [replayProgress, setReplayProgress] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
-  const xraySeededRef   = useRef(false);
-  const replayActiveRef = useRef(false); // sync ref so WS handler can read current value without closure stale state
+  const xraySeededRef    = useRef(false);
+  const replayActiveRef  = useRef(false);
+  const latestSoftFluxRef = useRef(2.3e-6); // updated on every forecast msg; used by alert handler
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -301,6 +302,7 @@ export function Dashboard() {
           const msg = JSON.parse(ev.data as string);
 
           if (msg.type === "forecast") {
+            if (msg.soft_flux) latestSoftFluxRef.current = msg.soft_flux as number;
             setWsForecast({
               p_15min: msg.p_15min, p_30min: msg.p_30min, p_extreme: msg.p_extreme,
               inference_ms: msg.inference_ms,
@@ -345,14 +347,20 @@ export function Dashboard() {
             }
             // Add alert as a new entry in the live flare event log
             setLiveFlareEvents((prev) => {
+              const flux = latestSoftFluxRef.current;
+              const fc = msg.flare_class as string;
+              const divisor = fc === "X" ? 1e-4 : fc === "M" ? 1e-5 : 1e-6;
+              const magnitude = Math.max(1.0, flux / divisor);
+              const magStr = magnitude < 10 ? magnitude.toFixed(1) : magnitude.toFixed(0);
+              const noise = (Math.random() - 0.5) * 0.08;
               const newEv = {
                 id: `ws-${id}`,
                 time: (msg.timestamp as string) ?? new Date().toISOString(),
-                class: `${msg.flare_class as string}1.0`,
-                peak_flux: (msg.soft_flux as number) ?? 1.5e-5,
+                class: `${fc}${magStr}`,
+                peak_flux: flux,
                 region: (msg.region as string) ?? "AR4081",
                 type: "forecast" as const,
-                confidence: Math.round((msg.p_30min as number) * 100) / 100,
+                confidence: parseFloat(Math.min(0.99, Math.max(0.50, (msg.p_30min as number) + noise)).toFixed(2)),
               };
               return [newEv, ...prev].slice(0, 20); // keep latest 20
             });
