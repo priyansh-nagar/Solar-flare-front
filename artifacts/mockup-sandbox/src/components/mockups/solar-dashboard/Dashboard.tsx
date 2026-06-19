@@ -268,6 +268,16 @@ export function Dashboard() {
   useEffect(() => { const id = setInterval(() => setTick(n => n + 1), 1000); return () => clearInterval(id); }, []);
 
   useEffect(() => {
+    const wsUrl: string | undefined = (import.meta as any).env?.VITE_WS_URL;
+    if (!wsUrl) return;
+    const httpBase = wsUrl.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+    const ping = () => fetch(`${httpBase}/api/healthz`, { mode: "no-cors" }).catch(() => {});
+    ping();
+    const id = setInterval(ping, 14 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     // In production (Vercel), point at the Render backend via VITE_WS_URL;
     // in dev, use the same host so the Vite proxy works.
