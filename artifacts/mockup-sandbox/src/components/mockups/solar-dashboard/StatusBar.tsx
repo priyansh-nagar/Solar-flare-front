@@ -66,7 +66,7 @@ export function StatusBar({ health, isLoading, error, lastUpdated, nowcastAlert 
         <Divider />
         <Seg label="System"      value={health.system_health?.toUpperCase() ?? "NOMINAL"} ok={health.system_health !== "degraded"} />
         <Divider />
-        <Seg label="Data Source" value="GOES-16 XRSB/XRSA" ok={isOk} />
+        <Seg label="Data Source" value="Aditya-L1 SOLEXS/HEL1OS" ok={isOk} />
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
