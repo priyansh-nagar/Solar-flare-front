@@ -1,4 +1,3 @@
-import type { HealthStatus } from "./api";
 import { format } from "date-fns";
 
 const C = {
@@ -12,11 +11,13 @@ const C = {
 };
 
 interface Props {
-  health: HealthStatus;
   isLoading: boolean;
   error: string | null;
   lastUpdated: Date | null;
   nowcastAlert: boolean;
+  wsConnected: boolean;
+  inferenceMs: number | null;
+  systemHealth: string;
 }
 
 function LED({ color, blink = false }: { color: string; blink?: boolean }) {
@@ -45,9 +46,11 @@ function Seg({ label, value, ok, blink }: { label: string; value: string; ok: bo
   );
 }
 
-export function StatusBar({ health, isLoading, error, lastUpdated, nowcastAlert }: Props) {
+export function StatusBar({ isLoading, error, lastUpdated, nowcastAlert, wsConnected, inferenceMs, systemHealth }: Props) {
   const isOk  = !error;
   const lastStr = lastUpdated ? format(lastUpdated, "HH:mm:ss") + " UTC" : "—";
+  const modelValue = wsConnected ? "LOADED" : "OFFLINE";
+  const inferenceValue = inferenceMs != null ? `${inferenceMs}MS` : "—";
 
   return (
     <div
@@ -58,15 +61,15 @@ export function StatusBar({ health, isLoading, error, lastUpdated, nowcastAlert 
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-        <Seg label="Backend"     value={isOk ? "CONNECTED" : "OFFLINE"}          ok={isOk} />
+        <Seg label="Backend"     value={isOk ? "CONNECTED" : "OFFLINE"}   ok={isOk} />
         <Divider />
-        <Seg label="Model"       value={health.model_status?.toUpperCase() ?? "—"} ok={health.model_status === "loaded"} />
+        <Seg label="Model"       value={modelValue}                        ok={wsConnected} />
         <Divider />
-        <Seg label="Inference"   value={health.inference_time_ms ? `${health.inference_time_ms}ms` : "—"} ok={true} />
+        <Seg label="Inference"   value={inferenceValue}                    ok={inferenceMs != null} />
         <Divider />
-        <Seg label="System"      value={health.system_health?.toUpperCase() ?? "NOMINAL"} ok={health.system_health !== "degraded"} />
+        <Seg label="System"      value={systemHealth?.toUpperCase() ?? "NOMINAL"} ok={systemHealth !== "degraded"} />
         <Divider />
-        <Seg label="Data Source" value="Aditya-L1 SOLEXS/HEL1OS" ok={isOk} />
+        <Seg label="Data Source" value="Aditya-L1 SOLEXS/HEL1OS"          ok={isOk} />
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>

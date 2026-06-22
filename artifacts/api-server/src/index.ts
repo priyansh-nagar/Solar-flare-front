@@ -124,10 +124,12 @@ wss.on("connection", (ws) => {
     liveInterval = setInterval(broadcastLive, 3000);
   }
 
-  function startReplay() {
+  function startReplay(speed = 20) {
     if (ws.readyState !== ws.OPEN) return;
     stopAll();
-    logger.info({ total: REPLAY_SEQUENCE.length }, "Starting GOES-16 8h replay sequence");
+    // interval per point: 1x=1000ms, 5x=200ms, 10x=100ms, 20x=50ms
+    const intervalMs = Math.round(1000 / speed);
+    logger.info({ total: REPLAY_SEQUENCE.length, speed, intervalMs }, "Starting GOES-16 8h replay sequence");
     ws.send(JSON.stringify({ type: "replay_start", total: REPLAY_SEQUENCE.length }));
 
     const baseTime = Date.now() - REPLAY_SEQUENCE.length * 60_000; // walk from 8h ago
@@ -163,7 +165,7 @@ wss.on("connection", (ws) => {
       }
 
       idx++;
-      replayTimeout = setTimeout(sendNext, 50); // 50 ms/point → 480 pts ≈ 24 s total
+      replayTimeout = setTimeout(sendNext, intervalMs);
     }
 
     sendNext();
@@ -182,8 +184,10 @@ wss.on("connection", (ws) => {
   ws.on("message", (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
-      if (msg.type === "replay_start") startReplay();
-      else if (msg.type === "replay_stop") stopReplay();
+      if (msg.type === "replay_start") {
+        const speed = typeof msg.speed === "number" && msg.speed > 0 ? msg.speed : 20;
+        startReplay(speed);
+      } else if (msg.type === "replay_stop") stopReplay();
     } catch { /* ignore */ }
   });
 

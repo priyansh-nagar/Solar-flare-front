@@ -7,6 +7,17 @@ import { fetchSolarData } from "./api";
 import type { SolarApiResponse, XRayPoint } from "./api";
 import { format } from "date-fns";
 
+const REPLAY_DATES = [
+  "2024-02-09 (X3.4)",
+  "2024-02-22 (X6.4)",
+  "2024-03-23 (X1.1)",
+  "2024-05-06 (X4.5)",
+  "2024-05-10 (X5.8)",
+  "2024-10-03 (M5.1)",
+] as const;
+
+const REPLAY_SPEEDS = [1, 5, 10, 20] as const;
+
 const POLL = 30_000;
 const TOAST_TTL = 8_000;
 
@@ -231,10 +242,17 @@ export function Dashboard() {
   const [liveFlareEvents, setLiveFlareEvents] = useState<SolarApiResponse["flare_events"]>([]);
   const [replayActive, setReplayActive] = useState(false);
   const [replayProgress, setReplayProgress] = useState(0);
+  const [replayIdx, setReplayIdx] = useState(0);
+  const [replayTotal, setReplayTotal] = useState(480);
+  const [replaySpeed, setReplaySpeed] = useState<1 | 5 | 10 | 20>(20);
+  const [replayDate, setReplayDate] = useState<string>(REPLAY_DATES[1]);
+  const [inferenceMs, setInferenceMs] = useState<number | null>(null);
+  const [fluxFlash, setFluxFlash] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const xraySeededRef    = useRef(false);
   const replayActiveRef  = useRef(false);
   const latestSoftFluxRef = useRef(2.3e-6); // updated on every forecast msg; used by alert handler
+  const replaySpeedRef = useRef<number>(20);
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -242,7 +260,10 @@ export function Dashboard() {
 
   const load = useCallback(async () => {
     try {
+      const t0 = performance.now();
       const r = await fetchSolarData();
+      const elapsed = Math.round(performance.now() - t0);
+      setInferenceMs(elapsed);
       setData(r); setError(null); setLastUp(new Date());
       // Seed xraySeries once from the HTTP data so the chart/navigator
       // always have a full 360-point history on load (no blank-chart flash).
@@ -307,6 +328,7 @@ export function Dashboard() {
               p_15min: msg.p_15min, p_30min: msg.p_30min, p_extreme: msg.p_extreme,
               inference_ms: msg.inference_ms,
             });
+            setFluxFlash((n) => n + 1);
             setXraySeries((prev) => {
               // On replay_start the series is cleared; allow building from zero
               const newPt: XRayPoint = {
@@ -318,14 +340,19 @@ export function Dashboard() {
               return [...prev.slice(-479), newPt];
             });
             if (msg.replay === true) {
-              const pct = Math.round(((msg.replay_idx as number) + 1) / (msg.replay_total as number) * 100);
+              const idx = (msg.replay_idx as number) + 1;
+              const total = msg.replay_total as number;
+              const pct = Math.round(idx / total * 100);
               setReplayProgress(pct);
+              setReplayIdx(idx);
+              setReplayTotal(total);
             }
 
           } else if (msg.type === "replay_start") {
             replayActiveRef.current = true;
             setReplayActive(true);
             setReplayProgress(0);
+            setReplayIdx(0);
             setXraySeries([]); // clear so chart rebuilds from replay data
 
           } else if (msg.type === "replay_end") {
@@ -427,9 +454,10 @@ export function Dashboard() {
         </div>
       )}
 
-      {/* ── blink keyframe injection ──────────────────────────────────────── */}
+      {/* ── keyframe injection ────────────────────────────────────────────── */}
       <style>{`
         @keyframes blink-led { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        @keyframes flux-flash { 0%{opacity:1} 40%{opacity:0.6} 100%{opacity:1} }
       `}</style>
 
       {/* ── HEADER ───────────────────────────────────────────────────────── */}
@@ -584,14 +612,20 @@ export function Dashboard() {
                 /* Soft X-ray */
                 <div key="soft" style={{ padding: "10px 20px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4, borderLeft: `1px solid ${C.border}` }}>
                   <div style={{ fontSize: 8, letterSpacing: "0.15em", color: C.textSec, textTransform: "uppercase" }}>Soft X-ray 1–8Å</div>
-                  <div style={{ fontSize: 28, fontWeight: "bold", color: C.blue, fontFamily: "monospace", lineHeight: 1.1 }}>{softFlux.toExponential(2)} W/m²</div>
+                  <div
+                    key={fluxFlash}
+                    style={{ fontSize: 28, fontWeight: "bold", color: C.blue, fontFamily: "monospace", lineHeight: 1.1, animation: fluxFlash > 0 ? "flux-flash 0.3s ease" : undefined }}
+                  >{softFlux.toExponential(2)} W/m²</div>
                   <div style={{ width: 40, height: 2, background: C.blue, marginTop: 2 }} />
                 </div>,
 
                 /* Hard X-ray */
                 <div key="hard" style={{ padding: "10px 20px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4, borderLeft: `1px solid ${C.border}` }}>
                   <div style={{ fontSize: 8, letterSpacing: "0.15em", color: C.textSec, textTransform: "uppercase" }}>Hard X-ray 0.5–4Å</div>
-                  <div style={{ fontSize: 28, fontWeight: "bold", color: C.cyan, fontFamily: "monospace", lineHeight: 1.1 }}>{hardFlux.toExponential(2)} W/m²</div>
+                  <div
+                    key={fluxFlash}
+                    style={{ fontSize: 28, fontWeight: "bold", color: C.cyan, fontFamily: "monospace", lineHeight: 1.1, animation: fluxFlash > 0 ? "flux-flash 0.3s ease" : undefined }}
+                  >{hardFlux.toExponential(2)} W/m²</div>
                   <div style={{ width: 40, height: 2, background: C.cyan, marginTop: 2 }} />
                 </div>,
 
@@ -651,41 +685,6 @@ export function Dashboard() {
                     </div>
                   </div>
                 )}
-                {replayActive && (
-                  <button
-                    onClick={() => {
-                      if (wsRef.current?.readyState === WebSocket.OPEN) {
-                        wsRef.current.send(JSON.stringify({ type: "replay_stop" }));
-                      }
-                      setReplayActive(false);
-                      setReplayProgress(0);
-                    }}
-                    style={{
-                      background: "none", border: `1px solid #FF3B3B`,
-                      color: "#FF3B3B",
-                      fontFamily: "monospace", fontSize: 8, letterSpacing: "0.12em",
-                      padding: "2px 8px", borderRadius: 2, cursor: "pointer",
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    ■ STOP
-                  </button>
-                )}
-                {!replayActive && (
-                  <button
-                    onClick={() => { if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "replay_start" })); }}
-                    disabled={!wsConnected}
-                    style={{
-                      background: "none", border: `1px solid ${!wsConnected ? C.border : C.amber}`,
-                      color: !wsConnected ? C.textDim : C.amber,
-                      fontFamily: "monospace", fontSize: 8, letterSpacing: "0.12em",
-                      padding: "2px 8px", borderRadius: 2, cursor: !wsConnected ? "not-allowed" : "pointer",
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    ▶ REPLAY
-                  </button>
-                )}
                 <span style={{ fontSize: 8, color: C.textDim, fontFamily: "monospace", letterSpacing: "0.1em" }}>6h · ADITYA-L1 · drag navigator to scroll</span>
               </div>
             </div>
@@ -735,13 +734,146 @@ export function Dashboard() {
         </div>
       </div>
 
+      {/* ── REPLAY CONTROL BAR ───────────────────────────────────────────── */}
+      <div
+        style={{
+          background: "#060A0E",
+          borderTop: `1px solid ${C.border}`,
+          padding: "5px 16px",
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          fontFamily: "monospace",
+        }}
+      >
+        {/* Play / Pause */}
+        <button
+          disabled={!wsConnected}
+          onClick={() => {
+            if (replayActive) {
+              wsRef.current?.send(JSON.stringify({ type: "replay_stop" }));
+              setReplayActive(false);
+              setReplayProgress(0);
+              setReplayIdx(0);
+            } else {
+              replaySpeedRef.current = replaySpeed;
+              wsRef.current?.send(JSON.stringify({ type: "replay_start", speed: replaySpeed, date: replayDate }));
+            }
+          }}
+          style={{
+            background: "none",
+            border: `1px solid ${!wsConnected ? C.border : C.amber}`,
+            color: !wsConnected ? C.textDim : C.amber,
+            fontFamily: "monospace", fontSize: 10, letterSpacing: "0.08em",
+            padding: "3px 10px", borderRadius: 2,
+            cursor: !wsConnected ? "not-allowed" : "pointer",
+            minWidth: 54, textAlign: "center",
+          }}
+        >
+          {replayActive ? "⏸ PAUSE" : "▶ PLAY"}
+        </button>
+
+        {/* Reset */}
+        <button
+          disabled={!wsConnected}
+          onClick={() => {
+            if (replayActive) {
+              wsRef.current?.send(JSON.stringify({ type: "replay_stop" }));
+              setReplayActive(false);
+              setReplayProgress(0);
+              setReplayIdx(0);
+            }
+            setTimeout(() => {
+              replaySpeedRef.current = replaySpeed;
+              wsRef.current?.send(JSON.stringify({ type: "replay_start", speed: replaySpeed, date: replayDate }));
+            }, 120);
+          }}
+          style={{
+            background: "none",
+            border: `1px solid ${!wsConnected ? C.border : C.textSec}`,
+            color: !wsConnected ? C.textDim : C.textSec,
+            fontFamily: "monospace", fontSize: 10, letterSpacing: "0.08em",
+            padding: "3px 10px", borderRadius: 2,
+            cursor: !wsConnected ? "not-allowed" : "pointer",
+          }}
+        >
+          ↺ RESET
+        </button>
+
+        {/* Speed selector */}
+        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 8, color: C.textSec }}>
+          <span style={{ letterSpacing: "0.1em" }}>SPEED</span>
+          {REPLAY_SPEEDS.map((s) => (
+            <button
+              key={s}
+              onClick={() => { setReplaySpeed(s as typeof replaySpeed); replaySpeedRef.current = s; }}
+              style={{
+                background: replaySpeed === s ? C.amber + "22" : "none",
+                border: `1px solid ${replaySpeed === s ? C.amber : C.border}`,
+                color: replaySpeed === s ? C.amber : C.textSec,
+                fontFamily: "monospace", fontSize: 8, letterSpacing: "0.05em",
+                padding: "2px 6px", borderRadius: 2, cursor: "pointer",
+              }}
+            >
+              {s}×
+            </button>
+          ))}
+        </div>
+
+        {/* Date dropdown */}
+        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 8, color: C.textSec }}>
+          <span style={{ letterSpacing: "0.1em" }}>EVENT</span>
+          <select
+            value={replayDate}
+            onChange={(e) => setReplayDate(e.target.value)}
+            style={{
+              background: "#0C1219",
+              border: `1px solid ${C.border}`,
+              color: C.textPri,
+              fontFamily: "monospace", fontSize: 8, letterSpacing: "0.05em",
+              padding: "2px 6px", borderRadius: 2, cursor: "pointer",
+              outline: "none",
+            }}
+          >
+            {REPLAY_DATES.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Progress scrubber */}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
+          <div
+            style={{
+              flex: 1, height: 4, background: C.border, borderRadius: 2,
+              position: "relative", overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute", left: 0, top: 0, bottom: 0,
+                width: `${replayProgress}%`,
+                background: replayActive ? C.amber : C.textDim,
+                transition: "width 0.1s linear",
+              }}
+            />
+          </div>
+          <span style={{ fontSize: 8, color: C.textSec, fontFamily: "monospace", whiteSpace: "nowrap", minWidth: 64, textAlign: "right" }}>
+            {replayActive ? `${replayIdx}/${replayTotal}` : replayProgress > 0 ? `DONE ${replayProgress}%` : "—/—"}
+          </span>
+        </div>
+      </div>
+
       {/* ── STATUS BAR ───────────────────────────────────────────────────── */}
       <StatusBar
-        health={d.health}
         isLoading={loading && !!data}
         error={error}
         lastUpdated={lastUp}
         nowcastAlert={nowcastAlert}
+        wsConnected={wsConnected}
+        inferenceMs={inferenceMs}
+        systemHealth={d.health.system_health ?? "nominal"}
       />
     </div>
   );

@@ -332,8 +332,13 @@ export function XRayLightCurves({ series, flareEvents = [], probM30 = 0, replayA
               tick={{ fill: "#5B7A8A", fontSize: 9, fontFamily: "monospace" }}
               tickLine={false}
               axisLine={{ stroke: "#1E2D3D" }}
-              interval="preserveStartEnd"
-              minTickGap={50}
+              ticks={(() => {
+                if (visible.length < 2) return [];
+                const count = 6;
+                return Array.from({ length: count }, (_, i) =>
+                  visible[Math.round(i * (visible.length - 1) / (count - 1))]?.time
+                ).filter(Boolean) as string[];
+              })()}
             />
             <YAxis
               yAxisId="left"
