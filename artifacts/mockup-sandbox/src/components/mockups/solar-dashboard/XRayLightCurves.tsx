@@ -335,9 +335,13 @@ export function XRayLightCurves({ series, flareEvents = [], probM30 = 0, replayA
               ticks={(() => {
                 if (visible.length < 2) return [];
                 const count = 6;
-                return Array.from({ length: count }, (_, i) =>
+                const raw = Array.from({ length: count }, (_, i) =>
                   visible[Math.round(i * (visible.length - 1) / (count - 1))]?.time
                 ).filter(Boolean) as string[];
+                // Deduplicate: small visible windows (< count points) cause the same
+                // index to be selected multiple times → duplicate timestamp strings →
+                // Recharts key collision → corrupted/straight line rendering.
+                return [...new Set(raw)];
               })()}
             />
             <YAxis
