@@ -247,12 +247,14 @@ export function Dashboard() {
   const [replaySpeed, setReplaySpeed] = useState<1 | 5 | 10 | 20>(20);
   const [replayDate, setReplayDate] = useState<string>(REPLAY_DATES[1]);
   const [inferenceMs, setInferenceMs] = useState<number | null>(null);
-  const [fluxFlash, setFluxFlash] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const xraySeededRef    = useRef(false);
   const replayActiveRef  = useRef(false);
-  const latestSoftFluxRef = useRef(2.3e-6); // updated on every forecast msg; used by alert handler
+  const latestSoftFluxRef = useRef(2.3e-6);
   const replaySpeedRef = useRef<number>(20);
+  const replayDateRef  = useRef<string>(REPLAY_DATES[1]);
+  const softFluxDivRef = useRef<HTMLDivElement>(null);
+  const hardFluxDivRef = useRef<HTMLDivElement>(null);
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -328,7 +330,15 @@ export function Dashboard() {
               p_15min: msg.p_15min, p_30min: msg.p_30min, p_extreme: msg.p_extreme,
               inference_ms: msg.inference_ms,
             });
-            setFluxFlash((n) => n + 1);
+            // Restart CSS flash animation imperatively — avoids key-remount glitch
+            const restartFlash = (el: HTMLDivElement | null) => {
+              if (!el) return;
+              el.style.animation = "none";
+              void el.offsetHeight;
+              el.style.animation = "flux-flash 0.3s ease";
+            };
+            restartFlash(softFluxDivRef.current);
+            restartFlash(hardFluxDivRef.current);
             setXraySeries((prev) => {
               // On replay_start the series is cleared; allow building from zero
               const newPt: XRayPoint = {
@@ -613,8 +623,8 @@ export function Dashboard() {
                 <div key="soft" style={{ padding: "10px 20px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4, borderLeft: `1px solid ${C.border}` }}>
                   <div style={{ fontSize: 8, letterSpacing: "0.15em", color: C.textSec, textTransform: "uppercase" }}>Soft X-ray 1–8Å</div>
                   <div
-                    key={fluxFlash}
-                    style={{ fontSize: 28, fontWeight: "bold", color: C.blue, fontFamily: "monospace", lineHeight: 1.1, animation: fluxFlash > 0 ? "flux-flash 0.3s ease" : undefined }}
+                    ref={softFluxDivRef}
+                    style={{ fontSize: 28, fontWeight: "bold", color: C.blue, fontFamily: "monospace", lineHeight: 1.1 }}
                   >{softFlux.toExponential(2)} W/m²</div>
                   <div style={{ width: 40, height: 2, background: C.blue, marginTop: 2 }} />
                 </div>,
@@ -623,8 +633,8 @@ export function Dashboard() {
                 <div key="hard" style={{ padding: "10px 20px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4, borderLeft: `1px solid ${C.border}` }}>
                   <div style={{ fontSize: 8, letterSpacing: "0.15em", color: C.textSec, textTransform: "uppercase" }}>Hard X-ray 0.5–4Å</div>
                   <div
-                    key={fluxFlash}
-                    style={{ fontSize: 28, fontWeight: "bold", color: C.cyan, fontFamily: "monospace", lineHeight: 1.1, animation: fluxFlash > 0 ? "flux-flash 0.3s ease" : undefined }}
+                    ref={hardFluxDivRef}
+                    style={{ fontSize: 28, fontWeight: "bold", color: C.cyan, fontFamily: "monospace", lineHeight: 1.1 }}
                   >{hardFlux.toExponential(2)} W/m²</div>
                   <div style={{ width: 40, height: 2, background: C.cyan, marginTop: 2 }} />
                 </div>,
@@ -752,13 +762,19 @@ export function Dashboard() {
           disabled={!wsConnected}
           onClick={() => {
             if (replayActive) {
+              // Stop replay → back to live
               wsRef.current?.send(JSON.stringify({ type: "replay_stop" }));
+              replayActiveRef.current = false;
               setReplayActive(false);
               setReplayProgress(0);
               setReplayIdx(0);
             } else {
-              replaySpeedRef.current = replaySpeed;
-              wsRef.current?.send(JSON.stringify({ type: "replay_start", speed: replaySpeed, date: replayDate }));
+              // Start replay with current speed + date
+              wsRef.current?.send(JSON.stringify({
+                type: "replay_start",
+                speed: replaySpeedRef.current,
+                date:  replayDateRef.current,
+              }));
             }
           }}
           style={{
@@ -774,20 +790,27 @@ export function Dashboard() {
           {replayActive ? "⏸ PAUSE" : "▶ PLAY"}
         </button>
 
-        {/* Reset */}
+        {/* Reset — stops any running replay then restarts from the beginning */}
         <button
           disabled={!wsConnected}
           onClick={() => {
-            if (replayActive) {
-              wsRef.current?.send(JSON.stringify({ type: "replay_stop" }));
-              setReplayActive(false);
-              setReplayProgress(0);
-              setReplayIdx(0);
-            }
+            // Always stop first (safe even if not running)
+            wsRef.current?.send(JSON.stringify({ type: "replay_stop" }));
+            replayActiveRef.current = false;
+            setReplayActive(false);
+            setReplayProgress(0);
+            setReplayIdx(0);
+            setXraySeries([]);
+            // Wait for server to process the stop before restarting
             setTimeout(() => {
-              replaySpeedRef.current = replaySpeed;
-              wsRef.current?.send(JSON.stringify({ type: "replay_start", speed: replaySpeed, date: replayDate }));
-            }, 120);
+              if (wsRef.current?.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({
+                  type: "replay_start",
+                  speed: replaySpeedRef.current,
+                  date:  replayDateRef.current,
+                }));
+              }
+            }, 350);
           }}
           style={{
             background: "none",
@@ -801,13 +824,16 @@ export function Dashboard() {
           ↺ RESET
         </button>
 
-        {/* Speed selector */}
+        {/* Speed selector — updates ref immediately so next replay uses new speed */}
         <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 8, color: C.textSec }}>
           <span style={{ letterSpacing: "0.1em" }}>SPEED</span>
           {REPLAY_SPEEDS.map((s) => (
             <button
               key={s}
-              onClick={() => { setReplaySpeed(s as typeof replaySpeed); replaySpeedRef.current = s; }}
+              onClick={() => {
+                setReplaySpeed(s as typeof replaySpeed);
+                replaySpeedRef.current = s;
+              }}
               style={{
                 background: replaySpeed === s ? C.amber + "22" : "none",
                 border: `1px solid ${replaySpeed === s ? C.amber : C.border}`,
@@ -821,12 +847,15 @@ export function Dashboard() {
           ))}
         </div>
 
-        {/* Date dropdown */}
+        {/* Date dropdown — updates ref immediately */}
         <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 8, color: C.textSec }}>
           <span style={{ letterSpacing: "0.1em" }}>EVENT</span>
           <select
             value={replayDate}
-            onChange={(e) => setReplayDate(e.target.value)}
+            onChange={(e) => {
+              setReplayDate(e.target.value);
+              replayDateRef.current = e.target.value;
+            }}
             style={{
               background: "#0C1219",
               border: `1px solid ${C.border}`,

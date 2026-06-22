@@ -13,67 +13,120 @@ const ALERT_THRESHOLD = 0.60;
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/api/ws" });
 
-function makeForecast(spike = false) {
-  const p_15min   = parseFloat((0.26 + Math.random() * 0.10).toFixed(4));
-  const p_30min   = spike
-    ? parseFloat((0.65 + Math.random() * 0.28).toFixed(4))
-    : parseFloat((0.15 + Math.random() * 0.10).toFixed(4));
-  const p_extreme = spike
-    ? parseFloat((0.18 + Math.random() * 0.20).toFixed(4))
-    : parseFloat((0.02 + Math.random() * 0.05).toFixed(4));
-  return { p_15min, p_30min, p_extreme };
-}
-
-function makeXRay(prevSoft: number, prevHard: number, spike = false) {
-  const noise  = () => 1 + (Math.random() - 0.5) * 0.10;
-  const wave   = 1 + 0.12 * Math.sin(Date.now() / 70_000);
-  const soft = spike
-    ? parseFloat((prevSoft * noise() * wave * (8 + Math.random() * 12)).toExponential(4))
-    : parseFloat((Math.max(1e-9, prevSoft * noise() * wave)).toExponential(4));
-  const hard = spike
-    ? parseFloat((prevHard * noise() * wave * (6 + Math.random() * 10)).toExponential(4))
-    : parseFloat((Math.max(1e-9, prevHard * noise() * wave * 0.88)).toExponential(4));
-  return { soft_flux: soft, hard_flux: hard };
-}
+type ReplayPoint = {
+  soft_flux: number;
+  hard_flux: number;
+  p_15min: number;
+  p_30min: number;
+  p_extreme: number;
+  inference_ms: number;
+};
 
 /**
- * Deterministic 8-hour GOES-like X-ray replay sequence.
- * No Math.random() — uses trig at prime frequencies so the shape is
- * always the same and predictable. Features an M1.6-class storm at hour 4.
+ * Generate a synthetic GOES-like 8-hour X-ray replay sequence.
+ * Each date event produces a uniquely-shaped flux profile with
+ * its own baseline, flare onset, peak magnitude, and decay rate.
  */
-function generateReplaySequence() {
-  const N        = 480; // 8 h × 60 min
-  const baseSoft = 2.1e-6;
-  const baseHard = 7.6e-8;
-  const flareAt  = 240; // M-flare onset at minute 240 (hour 4)
+function generateFlareSequence(params: {
+  baseSoft: number;
+  baseHard: number;
+  flareAt: number;
+  peakSoft: number;
+  riseMinutes: number;
+  decayMinutes: number;
+  isXClass: boolean;
+}): ReplayPoint[] {
+  const N = 480; // 8 h × 60 min
+  const ratio = params.peakSoft / params.baseSoft;
 
   return Array.from({ length: N }, (_, i) => {
     const det  = Math.sin(i * 0.31) * 0.06 + Math.cos(i * 0.17) * 0.04;
     const wave = 1 + 0.22 * Math.sin((i / 120) * Math.PI);
+    const dist = i - params.flareAt;
 
-    const dist = i - flareAt;
-    let boost = 1;
-    if (dist >= -25 && dist < 0)   boost = 1 + ((dist + 25) / 25) * 1.8;
-    if (dist >= 0  && dist < 120)  boost = 1 + Math.exp(-dist / 22) * 6.5; // M1.6 peak
+    let flareFactor = 1.0;
+    // Gradual cubic pre-flare rise
+    if (dist >= -params.riseMinutes && dist < 0) {
+      const t = (dist + params.riseMinutes) / params.riseMinutes;
+      flareFactor = 1 + (ratio - 1) * t * t * t;
+    }
+    // Impulsive peak, then exponential decay
+    if (dist >= 0) {
+      flareFactor = 1 + (ratio - 1) * Math.exp(-dist / params.decayMinutes);
+    }
 
-    const soft = parseFloat(Math.max(1e-9, baseSoft * wave * (1 + det) * boost).toExponential(4));
-    const hard = parseFloat(Math.max(1e-9, baseHard * wave * (1 + det * 0.7) * boost * 0.92).toExponential(4));
+    const soft = parseFloat(Math.max(1e-9, params.baseSoft * wave * (1 + det) * flareFactor).toExponential(4));
+    const hard = parseFloat(Math.max(1e-9, params.baseHard * wave * (1 + det * 0.7) * flareFactor * 0.92).toExponential(4));
 
-    const probBase  = 0.11 + 0.04 * Math.sin((i / 120) * Math.PI);
-    const probBoost = (dist >= -30 && dist < 90)
-      ? Math.max(0, 1 - Math.abs(dist - 10) / 55) * 0.62 : 0;
-    const prob      = parseFloat(Math.min(0.95, probBase + probBoost).toFixed(4));
-
-    const p_30min   = prob;
-    const p_15min   = parseFloat(Math.min(0.95, prob * 0.9 + 0.04).toFixed(4));
-    const p_extreme = parseFloat(Math.min(0.95, prob * 0.25).toFixed(4));
+    const probBase  = 0.12 + 0.03 * Math.sin((i / 120) * Math.PI);
+    const probBoost = (dist >= -35 && dist < 100)
+      ? Math.max(0, 1 - Math.abs(dist - 5) / 60) * (params.isXClass ? 0.82 : 0.65)
+      : 0;
+    const p_30min   = parseFloat(Math.min(0.95, probBase + probBoost).toFixed(4));
+    const p_15min   = parseFloat(Math.min(0.95, p_30min * 0.92 + 0.03).toFixed(4));
+    const p_extreme = parseFloat(Math.min(0.95, p_30min * (params.isXClass ? 0.48 : 0.18)).toFixed(4));
     const inference_ms = Math.round(95 + Math.sin(i * 0.43) * 55 + Math.cos(i * 0.29) * 30);
 
     return { soft_flux: soft, hard_flux: hard, p_15min, p_30min, p_extreme, inference_ms };
   });
 }
 
-const REPLAY_SEQUENCE = generateReplaySequence();
+// One deterministic sequence per selectable date. Peak soft fluxes match
+// real GOES XRSB 1-8Å class boundaries (X1 = 1e-4, X3.4 = 3.4e-4, etc.)
+const DATE_SEQUENCES = new Map<string, ReplayPoint[]>([
+  ["2024-02-09 (X3.4)", generateFlareSequence({
+    baseSoft: 1.8e-6, baseHard: 6.1e-8,
+    flareAt: 180, peakSoft: 3.4e-4,
+    riseMinutes: 20, decayMinutes: 30,
+    isXClass: true,
+  })],
+  ["2024-02-22 (X6.4)", generateFlareSequence({
+    baseSoft: 2.1e-6, baseHard: 7.6e-8,
+    flareAt: 240, peakSoft: 6.4e-4,
+    riseMinutes: 15, decayMinutes: 38,
+    isXClass: true,
+  })],
+  ["2024-03-23 (X1.1)", generateFlareSequence({
+    baseSoft: 1.2e-6, baseHard: 4.0e-8,
+    flareAt: 300, peakSoft: 1.1e-4,
+    riseMinutes: 28, decayMinutes: 22,
+    isXClass: true,
+  })],
+  ["2024-05-06 (X4.5)", generateFlareSequence({
+    baseSoft: 2.8e-6, baseHard: 9.5e-8,
+    flareAt: 150, peakSoft: 4.5e-4,
+    riseMinutes: 18, decayMinutes: 32,
+    isXClass: true,
+  })],
+  ["2024-05-10 (X5.8)", generateFlareSequence({
+    baseSoft: 3.2e-6, baseHard: 1.1e-7,
+    flareAt: 360, peakSoft: 5.8e-4,
+    riseMinutes: 12, decayMinutes: 42,
+    isXClass: true,
+  })],
+  ["2024-10-03 (M5.1)", generateFlareSequence({
+    baseSoft: 1.5e-6, baseHard: 5.2e-8,
+    flareAt: 210, peakSoft: 5.1e-5,
+    riseMinutes: 32, decayMinutes: 50,
+    isXClass: false,
+  })],
+]);
+
+function makeForecast() {
+  const p_15min   = parseFloat((0.26 + Math.random() * 0.10).toFixed(4));
+  const p_30min   = parseFloat((0.15 + Math.random() * 0.10).toFixed(4));
+  const p_extreme = parseFloat((0.02 + Math.random() * 0.05).toFixed(4));
+  return { p_15min, p_30min, p_extreme };
+}
+
+function makeXRay(prevSoft: number, prevHard: number) {
+  const noise = () => 1 + (Math.random() - 0.5) * 0.10;
+  const wave  = 1 + 0.12 * Math.sin(Date.now() / 70_000);
+  // Clamp live soft to at most M-class (1e-4) to prevent jarring X flashes
+  const soft = parseFloat(Math.min(9.9e-5, Math.max(1e-9, prevSoft * noise() * wave)).toExponential(4));
+  const hard = parseFloat(Math.min(9.9e-6, Math.max(1e-9, prevHard * noise() * wave * 0.88)).toExponential(4));
+  return { soft_flux: soft, hard_flux: hard };
+}
 
 wss.on("connection", (ws) => {
   logger.info("WebSocket client connected");
@@ -81,8 +134,8 @@ wss.on("connection", (ws) => {
   let tickCount  = 0;
   let softFlux   = 2.3e-6;
   let hardFlux   = 8.1e-8;
-  let liveInterval:   ReturnType<typeof setInterval>  | null = null;
-  let replayTimeout:  ReturnType<typeof setTimeout>   | null = null;
+  let liveInterval:  ReturnType<typeof setInterval> | null = null;
+  let replayTimeout: ReturnType<typeof setTimeout>  | null = null;
 
   function stopAll() {
     if (liveInterval)  { clearInterval(liveInterval);  liveInterval  = null; }
@@ -92,9 +145,8 @@ wss.on("connection", (ws) => {
   function broadcastLive() {
     if (ws.readyState !== ws.OPEN) return;
     tickCount++;
-    const spike = tickCount % 100 === 0;
-    const { p_15min, p_30min, p_extreme } = makeForecast(spike);
-    const { soft_flux, hard_flux }        = makeXRay(softFlux, hardFlux, spike);
+    const { p_15min, p_30min, p_extreme } = makeForecast();
+    const { soft_flux, hard_flux }        = makeXRay(softFlux, hardFlux);
     softFlux = soft_flux;
     hardFlux = hard_flux;
     const inference_ms = Math.round(85 + Math.random() * 130);
@@ -124,19 +176,22 @@ wss.on("connection", (ws) => {
     liveInterval = setInterval(broadcastLive, 3000);
   }
 
-  function startReplay(speed = 20) {
+  function startReplay(speed = 20, date = "2024-02-22 (X6.4)") {
     if (ws.readyState !== ws.OPEN) return;
     stopAll();
-    // interval per point: 1x=1000ms, 5x=200ms, 10x=100ms, 20x=50ms
-    const intervalMs = Math.round(1000 / speed);
-    logger.info({ total: REPLAY_SEQUENCE.length, speed, intervalMs }, "Starting GOES-16 8h replay sequence");
-    ws.send(JSON.stringify({ type: "replay_start", total: REPLAY_SEQUENCE.length }));
 
-    const baseTime = Date.now() - REPLAY_SEQUENCE.length * 60_000; // walk from 8h ago
+    const sequence = DATE_SEQUENCES.get(date) ?? DATE_SEQUENCES.get("2024-02-22 (X6.4)")!;
+    // Interval per point: 1x=1000ms, 5x=200ms, 10x=100ms, 20x=50ms
+    const intervalMs = Math.max(10, Math.round(1000 / speed));
+
+    logger.info({ date, speed, intervalMs, points: sequence.length }, "Starting replay");
+    ws.send(JSON.stringify({ type: "replay_start", total: sequence.length }));
+
+    const baseTime = Date.now() - sequence.length * 60_000; // walk from 8h ago
     let idx = 0;
 
     function sendNext() {
-      if (ws.readyState !== ws.OPEN || idx >= REPLAY_SEQUENCE.length) {
+      if (ws.readyState !== ws.OPEN || idx >= sequence.length) {
         if (ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({ type: "replay_end" }));
           logger.info("Replay complete — resuming live mode");
@@ -145,12 +200,12 @@ wss.on("connection", (ws) => {
         return;
       }
 
-      const pt        = REPLAY_SEQUENCE[idx];
+      const pt        = sequence[idx];
       const timestamp = new Date(baseTime + idx * 60_000).toISOString();
 
       ws.send(JSON.stringify({
         type: "forecast", timestamp, ...pt,
-        replay: true, replay_idx: idx, replay_total: REPLAY_SEQUENCE.length,
+        replay: true, replay_idx: idx, replay_total: sequence.length,
         model_version: "v2.1",
       }));
 
@@ -180,18 +235,20 @@ wss.on("connection", (ws) => {
     startLive();
   }
 
-  // Handle messages from the client
   ws.on("message", (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
       if (msg.type === "replay_start") {
         const speed = typeof msg.speed === "number" && msg.speed > 0 ? msg.speed : 20;
-        startReplay(speed);
-      } else if (msg.type === "replay_stop") stopReplay();
+        const date  = typeof msg.date  === "string" ? msg.date  : "2024-02-22 (X6.4)";
+        startReplay(speed, date);
+      } else if (msg.type === "replay_stop") {
+        stopReplay();
+      }
     } catch { /* ignore */ }
   });
 
-  // Immediate first tick then start live interval
+  // First tick immediately, then live interval
   broadcastLive();
   startLive();
 
