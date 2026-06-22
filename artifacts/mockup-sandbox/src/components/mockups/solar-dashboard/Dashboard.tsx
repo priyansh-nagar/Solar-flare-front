@@ -251,10 +251,13 @@ export function Dashboard() {
   const xraySeededRef    = useRef(false);
   const replayActiveRef  = useRef(false);
   const latestSoftFluxRef = useRef(2.3e-6);
-  const replaySpeedRef = useRef<number>(20);
-  const replayDateRef  = useRef<string>(REPLAY_DATES[1]);
-  const softFluxDivRef = useRef<HTMLDivElement>(null);
-  const hardFluxDivRef = useRef<HTMLDivElement>(null);
+  const replaySpeedRef  = useRef<number>(20);
+  const replayDateRef   = useRef<string>(REPLAY_DATES[1]);
+  const softFluxDivRef  = useRef<HTMLDivElement>(null);
+  const hardFluxDivRef  = useRef<HTMLDivElement>(null);
+  // Buffer replay points; flush to state every 200 ms to cap React renders at 5/sec
+  const replayBufferRef = useRef<XRayPoint[]>([]);
+  const flushTimerRef   = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -317,6 +320,8 @@ export function Dashboard() {
       ws.onopen  = () => setWsConnected(true);
       ws.onclose = () => {
         setWsConnected(false);
+        // Stop flush timer on disconnect
+        if (flushTimerRef.current) { clearInterval(flushTimerRef.current); flushTimerRef.current = null; }
         retryTimer = setTimeout(connect, 5000);
       };
       ws.onerror = () => ws.close();
@@ -326,36 +331,47 @@ export function Dashboard() {
 
           if (msg.type === "forecast") {
             if (msg.soft_flux) latestSoftFluxRef.current = msg.soft_flux as number;
-            setWsForecast({
-              p_15min: msg.p_15min, p_30min: msg.p_30min, p_extreme: msg.p_extreme,
-              inference_ms: msg.inference_ms,
-            });
-            // Restart CSS flash animation imperatively — avoids key-remount glitch
-            const restartFlash = (el: HTMLDivElement | null) => {
-              if (!el) return;
-              el.style.animation = "none";
-              void el.offsetHeight;
-              el.style.animation = "flux-flash 0.3s ease";
+
+            const newPt: XRayPoint = {
+              time: (msg.timestamp as string) ?? new Date().toISOString(),
+              soft: (msg.soft_flux as number) ?? 2.3e-6,
+              hard: (msg.hard_flux as number) ?? 8.1e-8,
+              prob: msg.p_30min as number,
             };
-            restartFlash(softFluxDivRef.current);
-            restartFlash(hardFluxDivRef.current);
-            setXraySeries((prev) => {
-              // On replay_start the series is cleared; allow building from zero
-              const newPt: XRayPoint = {
-                time: (msg.timestamp as string) ?? new Date().toISOString(),
-                soft: (msg.soft_flux as number) ?? (prev[prev.length - 1]?.soft ?? 2.3e-6),
-                hard: (msg.hard_flux as number) ?? (prev[prev.length - 1]?.hard ?? 8.1e-8),
-                prob: msg.p_30min as number,
-              };
-              return [...prev.slice(-479), newPt];
-            });
+
             if (msg.replay === true) {
-              const idx = (msg.replay_idx as number) + 1;
-              const total = msg.replay_total as number;
-              const pct = Math.round(idx / total * 100);
-              setReplayProgress(pct);
+              // ── REPLAY MODE ─────────────────────────────────────────────────
+              // Buffer the point; the flush interval drains it every 200 ms.
+              // This caps React renders at ~5/sec regardless of replay speed,
+              // eliminating the layout-thrash and X-class flickering at 20×.
+              replayBufferRef.current.push(newPt);
+              // Update forecast probabilities immediately (lightweight)
+              setWsForecast({
+                p_15min: msg.p_15min, p_30min: msg.p_30min, p_extreme: msg.p_extreme,
+                inference_ms: msg.inference_ms,
+              });
+              const idx   = (msg.replay_idx as number) + 1;
+              const total = (msg.replay_total as number);
+              setReplayProgress(Math.round(idx / total * 100));
               setReplayIdx(idx);
               setReplayTotal(total);
+            } else {
+              // ── LIVE MODE ────────────────────────────────────────────────────
+              setWsForecast({
+                p_15min: msg.p_15min, p_30min: msg.p_30min, p_extreme: msg.p_extreme,
+                inference_ms: msg.inference_ms,
+              });
+              // Flash animation only in live mode — forced reflow at 20×/sec
+              // would cause full-page layout thrash during replay
+              const restartFlash = (el: HTMLDivElement | null) => {
+                if (!el) return;
+                el.style.animation = "none";
+                void el.offsetHeight;
+                el.style.animation = "flux-flash 0.3s ease";
+              };
+              restartFlash(softFluxDivRef.current);
+              restartFlash(hardFluxDivRef.current);
+              setXraySeries(prev => [...prev.slice(-479), newPt]);
             }
 
           } else if (msg.type === "replay_start") {
@@ -363,14 +379,27 @@ export function Dashboard() {
             setReplayActive(true);
             setReplayProgress(0);
             setReplayIdx(0);
-            setXraySeries([]); // clear so chart rebuilds from replay data
+            replayBufferRef.current = [];
+            setXraySeries([]);
+            // Flush buffer to state every 200 ms — caps renders at 5/sec
+            if (flushTimerRef.current) clearInterval(flushTimerRef.current);
+            flushTimerRef.current = setInterval(() => {
+              const buf = replayBufferRef.current.splice(0);
+              if (buf.length > 0) {
+                setXraySeries(prev => [...prev, ...buf].slice(-480));
+              }
+            }, 200);
 
           } else if (msg.type === "replay_end") {
+            if (flushTimerRef.current) { clearInterval(flushTimerRef.current); flushTimerRef.current = null; }
+            // Flush any remaining buffered points
+            const remaining = replayBufferRef.current.splice(0);
+            if (remaining.length > 0) {
+              setXraySeries(prev => [...prev, ...remaining].slice(-480));
+            }
             replayActiveRef.current = false;
             setReplayActive(false);
             setReplayProgress(100);
-            // Allow re-seeding from HTTP on next poll so the live chart
-            // starts fresh after replay instead of showing stale replay data
             xraySeededRef.current = false;
 
           } else if (msg.type === "alert") {
@@ -790,27 +819,18 @@ export function Dashboard() {
           {replayActive ? "⏸ PAUSE" : "▶ PLAY"}
         </button>
 
-        {/* Reset — stops any running replay then restarts from the beginning */}
+        {/* Reset — STOP only, no auto-play */}
         <button
           disabled={!wsConnected}
           onClick={() => {
-            // Always stop first (safe even if not running)
+            if (flushTimerRef.current) { clearInterval(flushTimerRef.current); flushTimerRef.current = null; }
+            replayBufferRef.current = [];
             wsRef.current?.send(JSON.stringify({ type: "replay_stop" }));
             replayActiveRef.current = false;
             setReplayActive(false);
             setReplayProgress(0);
             setReplayIdx(0);
             setXraySeries([]);
-            // Wait for server to process the stop before restarting
-            setTimeout(() => {
-              if (wsRef.current?.readyState === WebSocket.OPEN) {
-                wsRef.current.send(JSON.stringify({
-                  type: "replay_start",
-                  speed: replaySpeedRef.current,
-                  date:  replayDateRef.current,
-                }));
-              }
-            }, 350);
           }}
           style={{
             background: "none",
@@ -824,7 +844,7 @@ export function Dashboard() {
           ↺ RESET
         </button>
 
-        {/* Speed selector — updates ref immediately so next replay uses new speed */}
+        {/* Speed selector — auto-restarts replay with new speed if currently active */}
         <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 8, color: C.textSec }}>
           <span style={{ letterSpacing: "0.1em" }}>SPEED</span>
           {REPLAY_SPEEDS.map((s) => (
@@ -833,6 +853,20 @@ export function Dashboard() {
               onClick={() => {
                 setReplaySpeed(s as typeof replaySpeed);
                 replaySpeedRef.current = s;
+                if (replayActiveRef.current) {
+                  // Restart replay immediately with new speed
+                  wsRef.current?.send(JSON.stringify({ type: "replay_stop" }));
+                  replayActiveRef.current = false;
+                  setReplayActive(false);
+                  setReplayProgress(0);
+                  setReplayIdx(0);
+                  if (flushTimerRef.current) { clearInterval(flushTimerRef.current); flushTimerRef.current = null; }
+                  replayBufferRef.current = [];
+                  setXraySeries([]);
+                  setTimeout(() => {
+                    wsRef.current?.send(JSON.stringify({ type: "replay_start", speed: s, date: replayDateRef.current }));
+                  }, 300);
+                }
               }}
               style={{
                 background: replaySpeed === s ? C.amber + "22" : "none",
@@ -847,14 +881,29 @@ export function Dashboard() {
           ))}
         </div>
 
-        {/* Date dropdown — updates ref immediately */}
+        {/* Date dropdown — auto-restarts replay with new date if currently active */}
         <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 8, color: C.textSec }}>
           <span style={{ letterSpacing: "0.1em" }}>EVENT</span>
           <select
             value={replayDate}
             onChange={(e) => {
-              setReplayDate(e.target.value);
-              replayDateRef.current = e.target.value;
+              const newDate = e.target.value;
+              setReplayDate(newDate);
+              replayDateRef.current = newDate;
+              if (replayActiveRef.current) {
+                // Restart replay immediately with new date
+                wsRef.current?.send(JSON.stringify({ type: "replay_stop" }));
+                replayActiveRef.current = false;
+                setReplayActive(false);
+                setReplayProgress(0);
+                setReplayIdx(0);
+                if (flushTimerRef.current) { clearInterval(flushTimerRef.current); flushTimerRef.current = null; }
+                replayBufferRef.current = [];
+                setXraySeries([]);
+                setTimeout(() => {
+                  wsRef.current?.send(JSON.stringify({ type: "replay_start", speed: replaySpeedRef.current, date: newDate }));
+                }, 300);
+              }
             }}
             style={{
               background: "#0C1219",
