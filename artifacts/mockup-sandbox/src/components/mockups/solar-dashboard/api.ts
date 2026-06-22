@@ -1,6 +1,4 @@
-const BASE_URL  = "https://solar-1-2krl.onrender.com";
-// When deployed to Vercel, point /api calls at the Render backend via VITE_API_URL env var
-const LOCAL_API = (import.meta as any).env?.VITE_API_URL ?? "/api";
+const LOCAL_API = "/api";
 
 export interface ActiveRegion {
   id: string;
@@ -73,38 +71,22 @@ export interface Telemetry {
   data_timestamp: string | null;
 }
 
-async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(7000) });
-      if (res.ok) return res;
-    } catch {
-      if (i === retries - 1) throw new Error(`Failed after ${retries} retries`);
-      await new Promise((r) => setTimeout(r, 1200 * (i + 1)));
-    }
-  }
-  throw new Error("Unreachable");
-}
 
 export async function fetchSolarData(): Promise<SolarApiResponse> {
-  const [predRes, healthRes, replayRes] = await Promise.allSettled([
-    fetchWithRetry(`${BASE_URL}/predict`),
-    fetchWithRetry(`${BASE_URL}/health`),
+  const replayRes = await Promise.allSettled([
     fetch(`${LOCAL_API}/replay`),
   ]);
 
-  const pred   = predRes.status   === "fulfilled" ? await predRes.value.json().catch(() => null)   : null;
-  const health = healthRes.status === "fulfilled" ? await healthRes.value.json().catch(() => null) : null;
-  const replay = replayRes.status === "fulfilled" ? await replayRes.value.json().catch(() => null) : null;
+  const replay = replayRes[0].status === "fulfilled" ? await replayRes[0].value.json().catch(() => null) : null;
 
   return {
-    active_regions: pred?.active_regions ?? mockRegions(),
-    xray_series:    buildXRaySeries(pred),
-    health:         health ?? mockHealth(),
-    forecast_windows: buildForecastWindows(pred),
-    flare_events:   pred?.flare_events ?? mockFlareEvents(),
-    confidence:     pred?.prediction?.confidence ?? 0.87,
-    lead_time_peak: pred?.lead_time_peak ?? 14,
+    active_regions: mockRegions(),
+    xray_series:    buildXRaySeries(null),
+    health:         mockHealth(),
+    forecast_windows: buildForecastWindows(null),
+    flare_events:   mockFlareEvents(),
+    confidence:     0.87,
+    lead_time_peak: 14,
     p_15min:        replay?.p_15min  ?? 0.31,
     p_30min:        replay?.p_30min  ?? 0.19,
     p_extreme:      replay?.p_extreme ?? 0.05,
