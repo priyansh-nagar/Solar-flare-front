@@ -102,43 +102,45 @@ function buildXRaySeries(pred: any): XRayPoint[] {
   const now = Date.now();
   const N = 360; // 6 hours × 60 min
 
-  // Inject synthetic flare bumps at random positions so the shape differs each reload
-  const rndFlare = () => Math.floor(Math.random() * N);
+  // Three flare bumps. The LAST one is always at index 295–330 so it falls
+  // inside the 60-point visible window when the user first loads in live mode.
+  // Decay is 25 min (was 8) so each flare stays visible for a long time.
   const flareAt = [
-    20  + Math.floor(Math.random() * 100),
-    140 + Math.floor(Math.random() * 80),
-    250 + Math.floor(Math.random() * 90),
-  ].sort((a, b) => a - b);
+    20  + Math.floor(Math.random() * 80),   // early event (quiet region)
+    150 + Math.floor(Math.random() * 80),   // mid event
+    295 + Math.floor(Math.random() * 35),   // RECENT — always visible at live edge
+  ];
   const flareClass = [
     [3e-6, 8e-5, 5e-5][Math.floor(Math.random() * 3)],
     [2e-4, 8e-5, 4e-4][Math.floor(Math.random() * 3)],
-    [5e-6, 3e-5, 1e-5][Math.floor(Math.random() * 3)],
+    [6e-5, 3e-4, 1e-4][Math.floor(Math.random() * 3)], // recent = M or X class
   ];
-  void rndFlare;
+  const DECAY = 25; // minutes — flare visible for ~75 min (3× decay constant)
 
   return Array.from({ length: N }, (_, i) => {
     const t = new Date(now - (N - 1 - i) * 60_000).toISOString();
     const noise = () => 1 + (Math.random() - 0.5) * 0.12;
-    const backgroundWave = 1 + 0.25 * Math.sin(i / 40);
+    // Background wave: large slow oscillation (120-min period) → clearly curved on 60-min window
+    const backgroundWave = 1 + 0.55 * Math.sin((i / 120) * Math.PI * 2);
 
     let softAdd = 0;
     let hardAdd = 0;
     flareAt.forEach((fi, idx) => {
       const dist = i - fi;
-      if (dist >= 0 && dist < 30) {
-        const envelope = Math.exp(-dist / 8) * flareClass[idx];
+      if (dist >= 0 && dist < DECAY * 4) {
+        const envelope = Math.exp(-dist / DECAY) * flareClass[idx];
         softAdd += envelope;
         hardAdd += envelope * 0.4;
       }
     });
 
-    // Probability follows a slow sine + flare bumps, stays realistic (5–40%)
+    // Probability: slow sine + flare bumps
     const baseProb = 0.14 + 0.08 * Math.sin(i / 55 + 1.2);
     let probAdd = 0;
     flareAt.forEach((fi) => {
       const dist = i - fi;
-      if (dist >= -10 && dist < 25) {
-        const envelope = Math.exp(-Math.abs(dist - 3) / 10) * 0.38;
+      if (dist >= -10 && dist < 50) {
+        const envelope = Math.exp(-Math.abs(dist - 3) / 15) * 0.45;
         probAdd += envelope;
       }
     });

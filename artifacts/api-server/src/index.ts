@@ -119,12 +119,19 @@ function makeForecast() {
   return { p_15min, p_30min, p_extreme };
 }
 
-function makeXRay(prevSoft: number, prevHard: number) {
-  const noise = () => 1 + (Math.random() - 0.5) * 0.10;
-  const wave  = 1 + 0.12 * Math.sin(Date.now() / 70_000);
-  // Clamp live soft to at most M-class (1e-4) to prevent jarring X flashes
-  const soft = parseFloat(Math.min(9.9e-5, Math.max(1e-9, prevSoft * noise() * wave)).toExponential(4));
-  const hard = parseFloat(Math.min(9.9e-6, Math.max(1e-9, prevHard * noise() * wave * 0.88)).toExponential(4));
+function makeXRay(tick: number) {
+  const noise  = () => 1 + (Math.random() - 0.5) * 0.12;
+  const BASE   = 2.3e-6;
+  // Multi-harmonic oscillation — produces ~1 log-unit of swing, clearly visible on the chart.
+  // Slow wave: 90-tick full cycle (at 3 s/tick = 4.5 min). The 60-point visible window
+  // sees ~67% of the cycle → a clear arc rather than a flat line.
+  const slow   = 1 + 0.80 * Math.sin((tick * Math.PI) / 45);
+  // Fast ripple: ~22-tick cycle adds texture
+  const fast   = 1 + 0.22 * Math.sin((tick * Math.PI) / 11 + 1.3);
+  const amp    = Math.max(0.08, slow) * Math.max(0.6, fast);
+  // Clamp live soft to at most M-class (1e-4)
+  const soft   = parseFloat(Math.min(9.9e-5, Math.max(1e-9, BASE * amp * noise())).toExponential(4));
+  const hard   = parseFloat(Math.min(9.9e-6, Math.max(1e-9, soft * 0.033 * noise())).toExponential(4));
   return { soft_flux: soft, hard_flux: hard };
 }
 
@@ -132,8 +139,6 @@ wss.on("connection", (ws) => {
   logger.info("WebSocket client connected");
 
   let tickCount  = 0;
-  let softFlux   = 2.3e-6;
-  let hardFlux   = 8.1e-8;
   let liveInterval:  ReturnType<typeof setInterval> | null = null;
   let replayTimeout: ReturnType<typeof setTimeout>  | null = null;
 
@@ -146,9 +151,7 @@ wss.on("connection", (ws) => {
     if (ws.readyState !== ws.OPEN) return;
     tickCount++;
     const { p_15min, p_30min, p_extreme } = makeForecast();
-    const { soft_flux, hard_flux }        = makeXRay(softFlux, hardFlux);
-    softFlux = soft_flux;
-    hardFlux = hard_flux;
+    const { soft_flux, hard_flux }        = makeXRay(tickCount);
     const inference_ms = Math.round(85 + Math.random() * 130);
     const timestamp    = new Date().toISOString();
 
